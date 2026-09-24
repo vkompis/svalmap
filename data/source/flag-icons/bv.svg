@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="px" height="px" viewBox="0 0 320 240" version="1.1">
+<g id="surface1">
+<rect x="0" y="0" width="320" height="240" style="fill:rgb(100%,100%,100%);fill-opacity:1;stroke:none;"/>
+<path style=" stroke:none;fill-rule:evenodd;fill:rgb(84.313726%,15.686275%,15.686275%);fill-opacity:1;" d="M -26.5 -38.898438 L 82.851562 -38.898438 L 82.851562 99.199219 L -26.5 99.199219 Z M 144.699219 -0.300781 L 335.199219 -0.300781 L 335.199219 99.199219 L 144.699219 99.199219 Z M -13.800781 160 L 81.398438 160 L 81.398438 255.148438 L -13.800781 255.148438 Z M 146 161.050781 L 335.148438 161.050781 L 335.148438 255.148438 L 146 255.148438 Z M 146 161.050781 "/>
+<path style=" stroke:none;fill-rule:evenodd;fill:rgb(0%,21.960784%,59.215689%);fill-opacity:1;" d="M 98.351562 -12.699219 L 130.5 -12.699219 L 130.5 255.148438 L 98.25 255.148438 Z M 98.351562 -12.699219 "/>
+<path style=" stroke:none;fill-rule:evenodd;fill:rgb(0%,21.960784%,59.215689%);fill-opacity:1;" d="M -13.800781 112.398438 L 335.199219 112.398438 L 335.199219 144.148438 L -13.800781 144.148438 Z M -13.800781 112.398438 "/>
+</g>
+</svg>

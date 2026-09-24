@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="px" height="px" viewBox="0 0 320 240" version="1.1">
+<g id="surface1">
+<rect x="0" y="0" width="320" height="240" style="fill:rgb(99.607843%,86.666667%,0%);fill-opacity:1;stroke:none;"/>
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(0.392157%,12.941177%,41.176471%);fill-opacity:1;" d="M 0 0 L 160 0 L 160 120 L 0 120 Z M 0 0 "/>
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 18.75 0 L 79.75 45.25 L 140.5 0 L 160 0 L 160 15.5 L 100 60.25 L 160 104.75 L 160 120 L 140 120 L 80 75.25 L 20.25 120 L 0 120 L 0 105 L 59.75 60.5 L 0 16 L 0 0 Z M 18.75 0 "/>
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(78.431374%,6.27451%,18.039216%);fill-opacity:1;" d="M 106 70.25 L 160 110 L 160 120 L 92.25 70.25 Z M 60 75.25 L 61.5 84 L 13.5 120 L 0 120 Z M 160 0 L 160 0.75 L 97.75 47.75 L 98.25 36.75 L 147.5 0 Z M 0 0 L 59.75 44 L 44.75 44 L 0 10.5 Z M 0 0 "/>
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 60.25 0 L 60.25 120 L 100.25 120 L 100.25 0 Z M 0 40 L 0 80 L 160 80 L 160 40 Z M 0 40 "/>
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(78.431374%,6.27451%,18.039216%);fill-opacity:1;" d="M 0 48.25 L 0 72.25 L 160 72.25 L 160 48.25 Z M 68.25 0 L 68.25 120 L 92.25 120 L 92.25 0 Z M 68.25 0 "/>
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(0.392157%,12.941177%,41.176471%);fill-opacity:1;" d="M 100.398438 60 C 100.398438 48.734375 91.265625 39.601562 80 39.601562 C 68.734375 39.601562 59.601562 48.734375 59.601562 60 C 59.601562 71.265625 68.734375 80.398438 80 80.398438 C 91.265625 80.398438 100.398438 71.265625 100.398438 60 Z M 100.398438 60 "/>
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(99.607843%,86.666667%,0%);fill-opacity:1;" d="M 80 39.601562 L 92 76.5 L 60.601562 53.699219 L 99.398438 53.699219 L 68 76.5 M 33.351562 49.148438 L 40.351562 70.851562 L 21.949219 57.5 L 44.800781 57.5 L 26.300781 70.898438 M 126.648438 49.148438 L 133.699219 70.851562 L 115.25 57.449219 L 138.101562 57.449219 L 119.601562 70.851562 M 80 89.148438 L 87.050781 110.851562 L 68.550781 97.449219 L 91.398438 97.449219 L 72.898438 110.851562 M 80 9.148438 L 87.050781 30.851562 L 68.550781 17.449219 L 91.398438 17.449219 L 72.898438 30.851562 "/>
+</g>
+</svg>

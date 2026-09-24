@@ -1,0 +1,51 @@
+{
+  "name": "svalmap",
+  "version": "1.0.0",
+  "description": "Maritime monitoring system for Svalbard EEZ and Barents Sea",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "test:e2e": "turbo run test:e2e",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "type-check": "turbo run type-check",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "prepare": "husky install",
+    "load:assets": "ts-node apps/jobs/scripts/loadAssets.ts",
+    "load:norwatch": "ts-node apps/jobs/scripts/loadNorMilWatchlist.ts",
+    "derive:aoi": "ts-node apps/jobs/scripts/deriveAOI.ts",
+    "load:sanctions": "ts-node apps/jobs/scripts/loadSanctions.ts",
+    "load:shadowfleet": "ts-node apps/jobs/scripts/loadShadowFleet.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "eslint": "^8.55.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-prettier": "^5.0.1",
+    "husky": "^8.0.3",
+    "lint-staged": "^15.2.0",
+    "prettier": "^3.1.0",
+    "turbo": "^1.11.0",
+    "typescript": "^5.3.0",
+    "ts-node": "^10.9.0"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md}": [
+      "prettier --write"
+    ]
+  }
+}

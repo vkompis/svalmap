@@ -1,0 +1,38 @@
+{
+  "name": "@svalmap/jobs",
+  "version": "1.0.0",
+  "description": "SvalMap background jobs for data processing",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "lint": "eslint src --ext .ts",
+    "test": "vitest",
+    "type-check": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@svalmap/types": "workspace:*",
+    "@svalmap/config": "workspace:*",
+    "winston": "^3.11.0",
+    "dotenv": "^16.3.0",
+    "zod": "^3.22.0",
+    "axios": "^1.6.0",
+    "node-cron": "^3.0.3",
+    "@google-cloud/bigquery": "^7.3.0",
+    "@turf/turf": "^6.5.0",
+    "@google-cloud/secret-manager": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/node-cron": "^3.0.0",
+    "typescript": "^5.3.0",
+    "tsx": "^4.0.0",
+    "vitest": "^1.0.0"
+  },
+  "main": "index.js",
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

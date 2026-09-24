@@ -1,0 +1,260 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="px" height="px" viewBox="0 0 320 240" version="1.1">
+<defs>
+<clipPath id="clip1">
+  <path d="M 8 5.5 L 22 5.5 L 22 19 L 8 19 Z M 8 5.5 "/>
+</clipPath>
+<clipPath id="clip2">
+  <path d="M 38.5 5.5 L 53 5.5 L 53 19 L 38.5 19 Z M 38.5 5.5 "/>
+</clipPath>
+<clipPath id="clip3">
+  <path d="M 69 5.5 L 83 5.5 L 83 19 L 69 19 Z M 69 5.5 "/>
+</clipPath>
+<clipPath id="clip4">
+  <path d="M 99.5 5.5 L 114 5.5 L 114 19 L 99.5 19 Z M 99.5 5.5 "/>
+</clipPath>
+<clipPath id="clip5">
+  <path d="M 130 5.5 L 144 5.5 L 144 19 L 130 19 Z M 130 5.5 "/>
+</clipPath>
+<clipPath id="clip6">
+  <path d="M 160 5.5 L 174 5.5 L 174 19 L 160 19 Z M 160 5.5 "/>
+</clipPath>
+<clipPath id="clip7">
+  <path d="M 23.5 18.5 L 38 18.5 L 38 32 L 23.5 32 Z M 23.5 18.5 "/>
+</clipPath>
+<clipPath id="clip8">
+  <path d="M 54 18.5 L 68 18.5 L 68 32 L 54 32 Z M 54 18.5 "/>
+</clipPath>
+<clipPath id="clip9">
+  <path d="M 84.5 18.5 L 99 18.5 L 99 32 L 84.5 32 Z M 84.5 18.5 "/>
+</clipPath>
+<clipPath id="clip10">
+  <path d="M 114.5 18.5 L 129 18.5 L 129 32 L 114.5 32 Z M 114.5 18.5 "/>
+</clipPath>
+<clipPath id="clip11">
+  <path d="M 145 18.5 L 159 18.5 L 159 32 L 145 32 Z M 145 18.5 "/>
+</clipPath>
+<clipPath id="clip12">
+  <path d="M 8 31.5 L 22 31.5 L 22 45 L 8 45 Z M 8 31.5 "/>
+</clipPath>
+<clipPath id="clip13">
+  <path d="M 38.5 31.5 L 53 31.5 L 53 45 L 38.5 45 Z M 38.5 31.5 "/>
+</clipPath>
+<clipPath id="clip14">
+  <path d="M 69 31.5 L 83 31.5 L 83 45 L 69 45 Z M 69 31.5 "/>
+</clipPath>
+<clipPath id="clip15">
+  <path d="M 99.5 31.5 L 114 31.5 L 114 45 L 99.5 45 Z M 99.5 31.5 "/>
+</clipPath>
+<clipPath id="clip16">
+  <path d="M 130 31.5 L 144 31.5 L 144 45 L 130 45 Z M 130 31.5 "/>
+</clipPath>
+<clipPath id="clip17">
+  <path d="M 160 31.5 L 174 31.5 L 174 45 L 160 45 Z M 160 31.5 "/>
+</clipPath>
+<clipPath id="clip18">
+  <path d="M 23.5 44.5 L 38 44.5 L 38 58 L 23.5 58 Z M 23.5 44.5 "/>
+</clipPath>
+<clipPath id="clip19">
+  <path d="M 54 44.5 L 68 44.5 L 68 58 L 54 58 Z M 54 44.5 "/>
+</clipPath>
+<clipPath id="clip20">
+  <path d="M 84.5 44.5 L 99 44.5 L 99 58 L 84.5 58 Z M 84.5 44.5 "/>
+</clipPath>
+<clipPath id="clip21">
+  <path d="M 114.5 44.5 L 129 44.5 L 129 58 L 114.5 58 Z M 114.5 44.5 "/>
+</clipPath>
+<clipPath id="clip22">
+  <path d="M 145 44.5 L 159 44.5 L 159 58 L 145 58 Z M 145 44.5 "/>
+</clipPath>
+<clipPath id="clip23">
+  <path d="M 8 57.5 L 22 57.5 L 22 71 L 8 71 Z M 8 57.5 "/>
+</clipPath>
+<clipPath id="clip24">
+  <path d="M 38.5 57.5 L 53 57.5 L 53 71 L 38.5 71 Z M 38.5 57.5 "/>
+</clipPath>
+<clipPath id="clip25">
+  <path d="M 69 57.5 L 83 57.5 L 83 71 L 69 71 Z M 69 57.5 "/>
+</clipPath>
+<clipPath id="clip26">
+  <path d="M 99.5 57.5 L 114 57.5 L 114 71 L 99.5 71 Z M 99.5 57.5 "/>
+</clipPath>
+<clipPath id="clip27">
+  <path d="M 130 57.5 L 144 57.5 L 144 71 L 130 71 Z M 130 57.5 "/>
+</clipPath>
+<clipPath id="clip28">
+  <path d="M 160 57.5 L 174 57.5 L 174 71 L 160 71 Z M 160 57.5 "/>
+</clipPath>
+<clipPath id="clip29">
+  <path d="M 23.5 70.5 L 38 70.5 L 38 84 L 23.5 84 Z M 23.5 70.5 "/>
+</clipPath>
+<clipPath id="clip30">
+  <path d="M 54 70.5 L 68 70.5 L 68 84 L 54 84 Z M 54 70.5 "/>
+</clipPath>
+<clipPath id="clip31">
+  <path d="M 84.5 70.5 L 99 70.5 L 99 84 L 84.5 84 Z M 84.5 70.5 "/>
+</clipPath>
+<clipPath id="clip32">
+  <path d="M 114.5 70.5 L 129 70.5 L 129 84 L 114.5 84 Z M 114.5 70.5 "/>
+</clipPath>
+<clipPath id="clip33">
+  <path d="M 145 70.5 L 159 70.5 L 159 84 L 145 84 Z M 145 70.5 "/>
+</clipPath>
+<clipPath id="clip34">
+  <path d="M 38.5 83 L 53 83 L 53 97 L 38.5 97 Z M 38.5 83 "/>
+</clipPath>
+<clipPath id="clip35">
+  <path d="M 99.5 83 L 114 83 L 114 97 L 99.5 97 Z M 99.5 83 "/>
+</clipPath>
+<clipPath id="clip36">
+  <path d="M 23.5 96 L 38 96 L 38 110 L 23.5 110 Z M 23.5 96 "/>
+</clipPath>
+<clipPath id="clip37">
+  <path d="M 84.5 96 L 99 96 L 99 110 L 84.5 110 Z M 84.5 96 "/>
+</clipPath>
+<clipPath id="clip38">
+  <path d="M 114.5 96 L 129 96 L 129 110 L 114.5 110 Z M 114.5 96 "/>
+</clipPath>
+<clipPath id="clip39">
+  <path d="M 38.5 109 L 53 109 L 53 123 L 38.5 123 Z M 38.5 109 "/>
+</clipPath>
+<clipPath id="clip40">
+  <path d="M 99.5 109 L 114 109 L 114 123 L 99.5 123 Z M 99.5 109 "/>
+</clipPath>
+</defs>
+<g id="surface1">
+<rect x="0" y="0" width="320" height="240" style="fill:rgb(74.117649%,23.921569%,26.666668%);fill-opacity:1;stroke:none;"/>
+<path style="fill-rule:nonzero;fill:rgb(0%,0%,0%);fill-opacity:1;stroke-width:37;stroke-linecap:butt;stroke-linejoin:miter;stroke:rgb(100%,100%,100%);stroke-opacity:1;stroke-miterlimit:4;" d="M 0 55.296875 L 640 55.296875 M 0 129 L 640 129 M 0 203 L 640 203 M 0 277 L 640 277 M 0 351 L 640 351 M 0 425 L 640 425 " transform="matrix(0.5,0,0,0.5,0,0)"/>
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(9.803922%,18.431373%,36.470589%);fill-opacity:1;" d="M 0 0 L 182.398438 0 L 182.398438 129.25 L 0 129.25 "/>
+<g clip-path="url(#clip1)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 15 5.5 L 19.5 19 L 8 10.5 L 22 10.5 L 10.5 19 Z M 15 5.5 "/>
+</g>
+<g clip-path="url(#clip2)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 45.5 5.5 L 50 19 L 38.5 10.5 L 52.5 10.5 L 41 19 Z M 45.5 5.5 "/>
+</g>
+<g clip-path="url(#clip3)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 76 5.5 L 80.5 19 L 69 10.5 L 83 10.5 L 71.5 19 Z M 76 5.5 "/>
+</g>
+<g clip-path="url(#clip4)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 106.5 5.5 L 111 19 L 99.5 10.5 L 113.5 10.5 L 102 19 Z M 106.5 5.5 "/>
+</g>
+<g clip-path="url(#clip5)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 137 5.5 L 141.5 19 L 130 10.5 L 144 10.5 L 132.5 19 Z M 137 5.5 "/>
+</g>
+<g clip-path="url(#clip6)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 167 5.5 L 171.5 19 L 160 10.5 L 174 10.5 L 162.5 19 Z M 167 5.5 "/>
+</g>
+<g clip-path="url(#clip7)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 30.5 18.5 L 35 32 L 23.5 23.5 L 37.5 23.5 L 26 32 Z M 30.5 18.5 "/>
+</g>
+<g clip-path="url(#clip8)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 61 18.5 L 65.5 32 L 54 23.5 L 68 23.5 L 56.5 32 Z M 61 18.5 "/>
+</g>
+<g clip-path="url(#clip9)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 91.5 18.5 L 96 32 L 84.5 23.5 L 98.5 23.5 L 87 32 Z M 91.5 18.5 "/>
+</g>
+<g clip-path="url(#clip10)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 121.5 18.5 L 126 32 L 114.5 23.5 L 128.5 23.5 L 117 32 Z M 121.5 18.5 "/>
+</g>
+<g clip-path="url(#clip11)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 152 18.5 L 156.5 32 L 145 23.5 L 159 23.5 L 147.5 32 Z M 152 18.5 "/>
+</g>
+<g clip-path="url(#clip12)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 15 31.5 L 19.5 45 L 8 36.5 L 22 36.5 L 10.5 45 Z M 15 31.5 "/>
+</g>
+<g clip-path="url(#clip13)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 45.5 31.5 L 50 45 L 38.5 36.5 L 52.5 36.5 L 41 45 Z M 45.5 31.5 "/>
+</g>
+<g clip-path="url(#clip14)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 76 31.5 L 80.5 45 L 69 36.5 L 83 36.5 L 71.5 45 Z M 76 31.5 "/>
+</g>
+<g clip-path="url(#clip15)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 106.5 31.5 L 111 45 L 99.5 36.5 L 113.5 36.5 L 102 45 Z M 106.5 31.5 "/>
+</g>
+<g clip-path="url(#clip16)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 137 31.5 L 141.5 45 L 130 36.5 L 144 36.5 L 132.5 45 Z M 137 31.5 "/>
+</g>
+<g clip-path="url(#clip17)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 167 31.5 L 171.5 45 L 160 36.5 L 174 36.5 L 162.5 45 Z M 167 31.5 "/>
+</g>
+<g clip-path="url(#clip18)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 30.5 44.5 L 35 58 L 23.5 49.5 L 37.5 49.5 L 26 58 Z M 30.5 44.5 "/>
+</g>
+<g clip-path="url(#clip19)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 61 44.5 L 65.5 58 L 54 49.5 L 68 49.5 L 56.5 58 Z M 61 44.5 "/>
+</g>
+<g clip-path="url(#clip20)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 91.5 44.5 L 96 58 L 84.5 49.5 L 98.5 49.5 L 87 58 Z M 91.5 44.5 "/>
+</g>
+<g clip-path="url(#clip21)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 121.5 44.5 L 126 58 L 114.5 49.5 L 128.5 49.5 L 117 58 Z M 121.5 44.5 "/>
+</g>
+<g clip-path="url(#clip22)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 152 44.5 L 156.5 58 L 145 49.5 L 159 49.5 L 147.5 58 Z M 152 44.5 "/>
+</g>
+<g clip-path="url(#clip23)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 15 57.5 L 19.5 71 L 8 62.5 L 22 62.5 L 10.5 71 Z M 15 57.5 "/>
+</g>
+<g clip-path="url(#clip24)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 45.5 57.5 L 50 71 L 38.5 62.5 L 52.5 62.5 L 41 71 Z M 45.5 57.5 "/>
+</g>
+<g clip-path="url(#clip25)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 76 57.5 L 80.5 71 L 69 62.5 L 83 62.5 L 71.5 71 Z M 76 57.5 "/>
+</g>
+<g clip-path="url(#clip26)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 106.5 57.5 L 111 71 L 99.5 62.5 L 113.5 62.5 L 102 71 Z M 106.5 57.5 "/>
+</g>
+<g clip-path="url(#clip27)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 137 57.5 L 141.5 71 L 130 62.5 L 144 62.5 L 132.5 71 Z M 137 57.5 "/>
+</g>
+<g clip-path="url(#clip28)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 167 57.5 L 171.5 71 L 160 62.5 L 174 62.5 L 162.5 71 Z M 167 57.5 "/>
+</g>
+<g clip-path="url(#clip29)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 30.5 70.5 L 35 84 L 23.5 75.5 L 37.5 75.5 L 26 84 Z M 30.5 70.5 "/>
+</g>
+<g clip-path="url(#clip30)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 61 70.5 L 65.5 84 L 54 75.5 L 68 75.5 L 56.5 84 Z M 61 70.5 "/>
+</g>
+<g clip-path="url(#clip31)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 91.5 70.5 L 96 84 L 84.5 75.5 L 98.5 75.5 L 87 84 Z M 91.5 70.5 "/>
+</g>
+<g clip-path="url(#clip32)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 121.5 70.5 L 126 84 L 114.5 75.5 L 128.5 75.5 L 117 84 Z M 121.5 70.5 "/>
+</g>
+<g clip-path="url(#clip33)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 152 70.5 L 156.5 84 L 145 75.5 L 159 75.5 L 147.5 84 Z M 152 70.5 "/>
+</g>
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 15 83 L 19.5 96.5 L 8 88 L 22 88 L 10.5 96.5 Z M 15 83 "/>
+<g clip-path="url(#clip34)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 45.5 83 L 50 96.5 L 38.5 88 L 52.5 88 L 41 96.5 Z M 45.5 83 "/>
+</g>
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 76 83 L 80.5 96.5 L 69 88 L 83 88 L 71.5 96.5 Z M 76 83 "/>
+<g clip-path="url(#clip35)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 106.5 83 L 111 96.5 L 99.5 88 L 113.5 88 L 102 96.5 Z M 106.5 83 "/>
+</g>
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 137 83 L 141.5 96.5 L 130 88 L 144 88 L 132.5 96.5 Z M 137 83 "/>
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 167 83 L 171.5 96.5 L 160 88 L 174 88 L 162.5 96.5 Z M 167 83 "/>
+<g clip-path="url(#clip36)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 30.5 96 L 35 109.5 L 23.5 101 L 37.5 101 L 26 109.5 Z M 30.5 96 "/>
+</g>
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 61 96 L 65.5 109.5 L 54 101 L 68 101 L 56.5 109.5 Z M 61 96 "/>
+<g clip-path="url(#clip37)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 91.5 96 L 96 109.5 L 84.5 101 L 98.5 101 L 87 109.5 Z M 91.5 96 "/>
+</g>
+<g clip-path="url(#clip38)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 121.5 96 L 126 109.5 L 114.5 101 L 128.5 101 L 117 109.5 Z M 121.5 96 "/>
+</g>
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 152 96 L 156.5 109.5 L 145 101 L 159 101 L 147.5 109.5 Z M 152 96 "/>
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 15 109 L 19.5 122.5 L 8 114 L 22 114 L 10.5 122.5 Z M 15 109 "/>
+<g clip-path="url(#clip39)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 45.5 109 L 50 122.5 L 38.5 114 L 52.5 114 L 41 122.5 Z M 45.5 109 "/>
+</g>
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 76 109 L 80.5 122.5 L 69 114 L 83 114 L 71.5 122.5 Z M 76 109 "/>
+<g clip-path="url(#clip40)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 106.5 109 L 111 122.5 L 99.5 114 L 113.5 114 L 102 122.5 Z M 106.5 109 "/>
+</g>
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 137 109 L 141.5 122.5 L 130 114 L 144 114 L 132.5 122.5 Z M 137 109 "/>
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(100%,100%,100%);fill-opacity:1;" d="M 167 109 L 171.5 122.5 L 160 114 L 174 114 L 162.5 122.5 Z M 167 109 "/>
+</g>
+</svg>

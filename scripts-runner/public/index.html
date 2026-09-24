@@ -1,0 +1,712 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>SvalMap</title>
+<link href="https://unpkg.com/maplibre-gl@3.6.0/dist/maplibre-gl.css" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet"/>
+<style>
+  html,body{height:100%;margin:0;overflow:hidden}
+  #map{position:absolute;top:0;left:0;right:0;bottom:0}
+  body{font-family:'Poppins',system-ui,Arial,sans-serif}
+  .hamburger{position:absolute;top:12px;left:12px;z-index:20;width:40px;height:40px;border-radius:8px;border:1px solid rgba(255,255,255,0.18);background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;cursor:pointer}
+  .hamburger .bars{width:18px}
+  .hamburger .bars, .hamburger .bars::before, .hamburger .bars::after{display:block;height:2px;background:#e2e8f0;position:relative;border-radius:2px}
+  .hamburger .bars::before, .hamburger .bars::after{content:'';position:absolute;left:0;width:100%}
+  .hamburger .bars::before{top:-6px}
+  .hamburger .bars::after{top:6px}
+
+  .drawer{position:absolute;top:0;left:0;bottom:0;z-index:15;display:flex;pointer-events:none}
+  .drawer .panel{width:300px;max-width:80vw;background:#0f172a;color:#e2e8f0;box-shadow:2px 0 12px rgba(0,0,0,0.4);transform:translateX(-100%);transition:transform .25s ease;pointer-events:auto;display:flex;flex-direction:column;overflow:auto;padding-bottom:30px}
+  .drawer .overlay{flex:1;background:rgba(0,0,0,0.35);opacity:0;transition:opacity .25s ease;pointer-events:none}
+  .drawer.open .panel{transform:translateX(0)}
+  .drawer.open .overlay{opacity:1;pointer-events:auto}
+  .panel .header{padding:12px 14px;font-weight:700;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between}
+  #collapse-btn{background:transparent;border:0;color:#e2e8f0;cursor:pointer;font-size:18px;line-height:1}
+  .panel .section{padding:10px 12px 30px}
+  .panel .item{display:flex;align-items:center;justify-content:flex-start;padding:10px;margin:6px 0;background:#0b1220;border:1px solid rgba(255,255,255,0.06);border-radius:8px}
+  .panel .item .label{display:flex;align-items:center;gap:8px;font-size:10px}
+  .panel .item .spacer{flex:1}
+  .panel .item .menu-icon{width:22px;height:22px;margin-left:8px;margin-right:10px}
+  .panel .group{margin-top:4px;border-left:1px dashed rgba(255,255,255,0.1);padding-left:8px}
+  .panel .disclaimer{margin:8px 12px 12px;color:#94a3b8;font-size:12px}
+
+  @media(min-width: 960px){
+    .drawer{pointer-events:auto}
+    .drawer .panel{transform:translateX(0)}
+    .drawer .overlay{display:none}
+  }
+
+  .popup-card{min-width:260px;border-radius:8px;overflow:hidden;box-shadow:0 8px 20px rgba(0,0,0,0.25);font-family:system-ui,Arial,sans-serif}
+  .popup-head{display:flex;align-items:center;gap:10px;padding:10px 12px;background:#ff5151;color:#fff;font-weight:800;font-size:18px}
+  .popup-flag{width:22px;height:16px;object-fit:cover;border-radius:2px}
+  .popup-body{padding:12px 14px;background:#fff;color:#111}
+  .popup-row{margin:8px 0}
+  .popup-row b{font-weight:800}
+  /* Popup styling (closer to provided design) */
+  .maplibregl-popup-close-button{display:none}
+  .maplibregl-popup-content{font-family:'Poppins',system-ui,Arial,sans-serif;padding:0;width:210px;border-radius:10px;overflow:hidden;box-shadow:0 10px 28px rgba(0,0,0,.35)}
+  .maplibregl-popup-content .head{padding:8px 9px;border-radius:10px 10px 0 0;font-weight:800;font-size:14px;line-height:18px}
+  .maplibregl-popup-content .country{display:flex;align-items:center;gap:6px;margin-top:6px;font-weight:700;font-size:11px;opacity:.95}
+  .maplibregl-popup-content .body{padding:9px 10px;background:#fff;color:#111}
+  .maplibregl-popup-content .row{margin:6px 0;font-size:12px;line-height:16px}
+  .maplibregl-popup-content .k{font-weight:800}
+  .maplibregl-popup-content .v{font-weight:400;margin-left:4px}
+  .maplibregl-popup-anchor-top > .maplibregl-popup-tip{border-bottom-color:#fff}
+  .maplibregl-popup-anchor-bottom > .maplibregl-popup-tip{border-top-color:#fff}
+  .maplibregl-popup-anchor-left > .maplibregl-popup-tip{border-right-color:#fff}
+  .maplibregl-popup-anchor-right > .maplibregl-popup-tip{border-left-color:#fff}
+  /* Right detail drawer */
+  #detail-drawer{position:absolute;top:0;right:0;bottom:0;width:360px;max-width:85vw;transform:translateX(100%);transition:transform .3s ease;z-index:15;pointer-events:none}
+  #detail-drawer.open{transform:translateX(0);pointer-events:auto}
+  #detail-card{height:100%;display:flex;flex-direction:column;background:#fff;color:#111;box-shadow:-8px 0 24px rgba(0,0,0,.35);border-radius:10px 0 0 10px;overflow:auto}
+  #detail-card .head{padding:12px 14px;border-radius:10px 0 0 0;font-weight:800;font-size:16px;line-height:20px;display:flex;flex-direction:column}
+  #detail-card .country{display:flex;align-items:center;gap:6px;margin-top:6px;font-weight:700;font-size:12px;opacity:.95}
+  #detail-card .placeholder{height:140px;background:#e5e7eb;color:#6b7280;display:flex;align-items:center;justify-content:center;font-weight:600}
+  #detail-card .body{padding:12px 14px}
+  #detail-card .row{margin:8px 0;font-size:13px;line-height:18px}
+  #detail-card .k{font-weight:800}
+  #detail-card .v{font-weight:400;margin-left:4px}
+  #detail-close{position:absolute;top:10px;right:10px;background:transparent;border:0;color:#fff;font-size:20px;cursor:pointer}
+  #legend{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);z-index:10;background:#111a;padding:8px 10px;border-radius:8px;color:#fff;font-family:system-ui,Arial,sans-serif;font-size:12px;display:flex;flex-direction:column;align-items:center;gap:10px}
+  #legend .row{display:flex;align-items:center;gap:10px}
+  #legend .item{display:flex;align-items:center;margin:0}
+  #legend .legend-icon{width:14px;height:auto;margin-right:6px}
+  #legend .legend-icon.shadow{width:16px;height:16px}
+  #legend .indicators{display:flex;gap:10px;justify-content:center}
+  #legend .swatch{width:12px;height:12px;border-radius:50%;margin-right:6px}
+      #legend .swatch.norway{background:#ff4040}
+    #legend .swatch.russia{background:#7dacff}
+    #legend .swatch.eu{background:#2b2bcc}
+    #legend .swatch.china{background:#f2c403}
+    #legend .swatch.rest{background:#f7f7f7}
+</style>
+</head>
+<body>
+  <div id="drawer" class="drawer open">
+    <div class="panel">
+      <div class="header"><span class="title">Maplayers</span> <button id="collapse-btn" title="Collapse">⮜</button></div>
+      <div class="disclaimer">NOTE: This map shows all registered vessels inside the Svalbard Fisheries Protection Zone except fishing vessels under 15 meters in length and recreational vessels under 45 meters in length. Inside The Norwegian and Jan Mayen EEZs only Russian vessels, shadow fleet vessels, sanctioned vessels, and military/law enforcement vessels are displayed.</div>
+      <div class="section">
+        <div class="item"><div class="label">Economic area</div><button id="ea-toggle" style="background:transparent;border:0;color:#e2e8f0;cursor:pointer">Details</button><div class="spacer"></div><img class="menu-icon" src="/menu/EEZs.svg" alt="EEZ"><label></label></div>
+        <div id="ea-group" class="group" style="display:block">
+          <div class="item"><div class="label">Norway EEZ</div><div class="spacer"></div><img class="menu-icon" src="/menu/EEZs.svg" alt="EEZ"><label><input type="checkbox" id="toggle-eez-norway"></label></div>
+          <div class="item"><div class="label">Jan Mayen EEZ</div><div class="spacer"></div><img class="menu-icon" src="/menu/EEZs.svg" alt="EEZ"><label><input type="checkbox" id="toggle-eez-janmayen"></label></div>
+          <div class="item"><div class="label">Svalbard Fisheries Protection Zone</div><div class="spacer"></div><img class="menu-icon" src="/menu/EEZs.svg" alt="EEZ"><label><input type="checkbox" id="toggle-eez-svalbard" checked></label></div>
+        </div>
+        <div class="item"><div class="label">Undersea cables</div><div class="spacer"></div><img class="menu-icon" src="/menu/Underseacables.svg" alt="Undersea cables"><label><input type="checkbox" id="toggle-cables"></label></div>
+        <div class="item"><div class="label">Pipelines and oil rigs</div><div class="spacer"></div><img class="menu-icon" src="/menu/pipelines_and_oil_rigs.svg" alt="Pipelines and oil rigs"><label><input type="checkbox" id="toggle-petroleum"></label></div>
+        <div class="item"><div class="label">NSM restriction areas</div><div class="spacer"></div><img class="menu-icon" src="/menu/NSMrestriction.svg" alt="NSM restriction areas"><label><input type="checkbox" id="toggle-nsm"></label></div>
+        <div class="item"><div class="label">Airports</div><div class="spacer"></div><img class="menu-icon" src="/menu/Airports.svg" alt="Airports"><label><input type="checkbox" id="toggle-airports"></label></div>
+        <div class="item"><div class="label">Offshore firing range</div><div class="spacer"></div><img class="menu-icon" src="/menu/Offshore_firing_range.svg" alt="Offshore firing range"><label><input type="checkbox" id="toggle-skytefelt"></label></div>
+        <div class="item"><div class="label">Ports</div><div class="spacer"></div><img class="menu-icon" src="/menu/ports.svg" alt="Ports"><label><input type="checkbox" id="toggle-ports"></label></div>
+        <div class="item"><div class="label">Ships</div><div class="spacer"></div><img class="menu-icon" src="/menu/ships.svg" alt="Ships"><label><input type="checkbox" id="toggle-ships" checked></label></div>
+        
+        <!-- Global Fishing Watch Section -->
+        <div class="section-header">Global Fishing Watch</div>
+        <div class="item"><div class="label">Loitering events</div><div class="spacer"></div><label><input type="checkbox" id="toggle-gfw-loitering"></label></div>
+        <div class="item"><div class="label">Encounters / Transshipments</div><div class="spacer"></div><label><input type="checkbox" id="toggle-gfw-encounters"></label></div>
+        <div class="item"><div class="label">AIS off events</div><div class="spacer"></div><label><input type="checkbox" id="toggle-gfw-aisoff"></label></div>
+        <div class="item"><div class="label">Port visits</div><div class="spacer"></div><label><input type="checkbox" id="toggle-gfw-port"></label></div>
+        <div class="item"><div class="label">SAR detections</div><div class="spacer"></div><label><input type="checkbox" id="toggle-gfw-sar"></label></div>
+        <div class="item"><div class="label">VIIRS detections</div><div class="spacer"></div><label><input type="checkbox" id="toggle-gfw-viirs"></label></div>
+      </div>
+      <div class="disclaimer" style="display:none"></div>
+    </div>
+  </div>
+
+  <div id="map"></div>
+  <div id="detail-drawer"><div id="detail-card"></div></div>
+  <script src="https://unpkg.com/maplibre-gl@3.6.0/dist/maplibre-gl.js"></script>
+  <div id="legend">
+    <div class="indicators">
+      <div class="item"><img class="legend-icon shadow" src="/markers/Circles/shadowtriangle.svg" alt="shadow"/>Russian shadow fleet vessel</div>
+      <div class="item"><img class="legend-icon" src="/markers/Circles/Sanksjon.svg" alt="sanction"/>Sanctioned / flagged vessel</div>
+              <div class="item"><img class="legend-icon" src="/markers/Circles/Militarycircle.svg" alt="military"/>Military vessel / Law enforcement</div>
+    </div>
+    <div class="row">
+      <div class="item"><span class="swatch norway"></span>Norway</div>
+      <div class="item"><span class="swatch russia"></span>Russia</div>
+      <div class="item"><span class="swatch eu"></span>EU</div>
+      <div class="item"><span class="swatch china"></span>China</div>
+      <div class="item"><span class="swatch rest"></span>Rest of world</div>
+    </div>
+  </div>
+  <script>
+  const styleUrl = "/styles/svalmap-dark.json";
+  const map = new maplibregl.Map({
+    container:'map',
+    style: styleUrl,
+    center:[12,69],
+    zoom:3.5,
+    dragRotate:false,
+    pitchWithRotate:false
+  });
+  map.setRenderWorldCopies(true);
+  map.once('load', function(){
+    map.fitBounds([[-10,57.5],[35,81]], {padding:{top:48,bottom:96,left:48,right:48}, duration:0});
+  });
+  // Navigation control removed per request
+  try { map.touchZoomRotate.disableRotation(); } catch(e) {}
+  // Collapse behavior for left drawer (header button)
+  (function(){
+    var btn = document.getElementById('collapse-btn');
+    var drawer = document.getElementById('drawer');
+    if(btn && drawer){
+      btn.addEventListener('click', function(){
+        if(drawer.classList.contains('open')){
+          drawer.classList.remove('open');
+        } else {
+          drawer.classList.add('open');
+        }
+      });
+    }
+  })();
+
+  const metersPerDegreeLat = 111320;
+  function courseLineFeature(lon, lat, courseDeg){
+    if(courseDeg==null) return null;
+    const lenMeters = 750;
+    const rad = courseDeg * Math.PI/180;
+    const dlon = (lenMeters * Math.cos(rad)) / (111320 * Math.cos(lat * Math.PI/180));
+    const dlat = (lenMeters * Math.sin(rad)) / 110540;
+    return { type:'Feature', geometry:{ type:'LineString', coordinates:[[lon,lat],[lon+dlon, lat+dlat]]}, properties:{} };
+  }
+
+  // Format helpers
+  function navStatusName(code){
+    const n = Number(code);
+    switch(n){
+      case 0: return 'Under way using engine';
+      case 1: return 'At anchor';
+      case 2: return 'Not under command';
+      case 3: return 'Restricted manoeuverability';
+      case 4: return 'Constrained by her draught';
+      case 5: return 'Moored';
+      case 6: return 'Aground';
+      case 7: return 'Engaged in fishing';
+      case 8: return 'Under way sailing';
+      case 9: return 'Reserved (HSC)';
+      case 10: return 'Reserved (WIG)';
+      case 11: case 12: case 13: return 'Reserved';
+      case 14: return 'AIS-SART is active';
+      case 15: return 'Not defined';
+      default: return (n===0 || isNaN(n)) ? 'Unknown' : String(code);
+    }
+  }
+  function formatDisplayTime(ts){
+    if(!ts) return 'N/A';
+    try{
+      const d = new Date(ts);
+      if(isNaN(d)) return String(ts);
+      return d.toLocaleString('no-NO', { hour12:false });
+    }catch{ return String(ts); }
+  }
+
+  async function loadAssets(){
+    const assets = await fetch('/api/assets').then(r=>r.json());
+    const cables = assets.filter(x=>x.type==='CABLE');
+    if(cables.length){
+      const crFc = { type:'FeatureCollection', features: cables.map(r=>({ type:'Feature', geometry: JSON.parse(r.geojson).geometry, properties:{ name:r.name } })) };
+      map.addSource('cables',{ type:'geojson', data: crFc });
+      map.addLayer({ id:'cables-line', type:'line', source:'cables', paint:{ 'line-color':'#00e6ff','line-width':2 } });
+    }
+  }
+
+  async function loadPositions(){
+    // Prefer live AIS if backend token is present; otherwise fallback to BigQuery
+    let rows = [];
+    try { rows = await fetch('/api/live-positions').then(r=>r.ok?r.json():[]).catch(()=>[]); } catch(_) {}
+    if(!Array.isArray(rows) || rows.length===0){
+      rows = await fetch('/api/positions?since=1440&limit=8000').then(r=>r.json());
+    }
+    function mmsiCategory(m, shipType){
+      const s=String(m||''); const mid=parseInt(s.slice(0,3));
+      // Check if it's a military vessel or law enforcement first
+      if(shipType === 35 || shipType === 'Military ops' || shipType === 55 || shipType === 'Law enforcement') return 'military';
+      if([257,258,259].includes(mid)) return 'norway';
+      if(mid===273) return 'russia';
+      // Derive ISO from MID for better EU/rest classification
+      const midToIsoMap = {
+        265:'se',266:'se', 219:'dk',220:'dk', 230:'fi', 211:'de',218:'de',
+        244:'nl',245:'nl',246:'nl', 226:'fr',227:'fr',228:'fr', 224:'es',225:'es',
+        263:'pt', 247:'it', 237:'gr',239:'gr',240:'gr',241:'gr', 250:'ie', 261:'pl',
+        276:'ee',275:'lv',277:'lt', 201:'at', 207:'bg', 270:'cz',271:'tr',280:'pt',
+        232:'gb',233:'gb',234:'gb',235:'gb', 231:'fo', 236:'gi',
+        // Bahamas & Panama common MIDs
+        308:'bs',309:'bs',310:'bs',311:'bs', 351:'pa',352:'pa',353:'pa',354:'pa',355:'pa'
+      };
+      const iso = midToIsoMap[mid];
+      const euIso = new Set(['se','dk','fi','de','nl','fr','es','pt','it','gr','ie','pl','ee','lv','lt','be','bg','ro','cz','sk','si','hr','cy','mt','hu','lu','at']);
+      if(iso && euIso.has(iso)) return 'eu';
+      if(mid>=412 && mid<=419) return 'china';
+      return 'rest';
+    }
+    function headerColor(cat){
+      if(cat==='norway') return '#ff4040';
+      if(cat==='russia') return '#7dacff';
+      if(cat==='eu') return '#2b2bcc';
+      if(cat==='china') return '#f2c403';
+      return '#f7f7f7';
+    }
+    function headerTextColor(cat){ return cat==='rest' ? '#111' : '#fff'; }
+    const features = rows.map(r=>{
+      const ts = (r.timestamp && (r.timestamp.value || r.timestamp)) || '';
+      const cat = mmsiCategory(r.mmsi, r.shipType);
+      const name = r.vessel_name || '';
+      return { type:'Feature', geometry:{ type:'Point', coordinates:[r.lon,r.lat] }, properties:{ mmsi:r.mmsi, name:name, category:cat, label:(name||('MMSI '+r.mmsi)), timestamp: ts, speed: r.speed || 0, heading: r.heading, course: r.course, status: r.status, destination: r.destination || null, eta: r.eta || null, imo: r.imo || null, shipType: r.shipType || null, sanctioned: r.sanctioned === true, shadowfleet: r.shadowfleet === true, military: cat === 'military' } };
+    });
+    const fc = { type:'FeatureCollection', features };
+    const lines = rows.map(r=>courseLineFeature(r.lon,r.lat,r.course)).filter(Boolean);
+    const lc = { type:'FeatureCollection', features: lines };
+    if(map.getSource('ships')){
+      map.getSource('ships').setData(fc);
+    } else {
+      const hoverPopup = new maplibregl.Popup({ closeButton:false, closeOnClick:false });
+      // Initial GFW load (default layers hidden)
+      loadGfwOverlays(168);
+      
+
+      map.addSource('projection', { type:'geojson', data:{ type:'FeatureCollection', features: [] } });
+      function closeAllPopups(){ try{ hoverPopup.remove(); }catch(_){} try{ document.querySelectorAll('.maplibregl-popup').forEach(function(n){ n.parentNode && n.parentNode.removeChild(n); }); }catch(_){} }
+      let activeSidebarMmsi = null;
+      function iconForCategoryCircle(){
+        return [ 'case',
+          ['==',['get','category'],'military'],'Militarycircle',
+          ['==',['get','category'],'norway'],'Norwaycircle',
+          ['==',['get','category'],'russia'],'Russiacircle',
+          ['==',['get','category'],'china'],'Chinacircle',
+          ['==',['get','category'],'eu'],'EUcircle',
+          'Unknowncircle' ];
+      }
+      function iconForCategoryTriangle(){
+        return [ 'case',
+          ['==',['get','category'],'military'],'Militarytriangle',
+          ['==',['get','category'],'norway'],'Norwaytriangle',
+          ['==',['get','category'],'russia'],'Russiatriangle',
+          ['==',['get','category'],'china'],'Chinatriangle',
+          ['==',['get','category'],'eu'],'EUtriangle',
+          'Unknowntriangle' ];
+      }
+      async function loadIcon(name, url){
+        return new Promise((resolve)=>{ const img=new Image(); img.onload=()=>{ try{ map.addImage(name,img,{sdf:false}); }catch(e){} resolve(true); }; img.crossOrigin='anonymous'; img.src=url; });
+      }
+      await Promise.all([
+        loadIcon('Norwaycircle','/markers/Circles/Norwaycircle.svg'),
+        loadIcon('Russiacircle','/markers/Circles/Russiacircle.svg'),
+        loadIcon('EUcircle','/markers/Circles/EUcircle.svg'),
+        loadIcon('Chinacircle','/markers/Circles/Chinacircle.svg'),
+        loadIcon('Unknowncircle','/markers/Circles/Unknowncircle.svg'),
+        loadIcon('Sanksjon','/markers/Circles/Sanksjon.svg'),
+        loadIcon('ShadowTriangle','/markers/Circles/shadowtriangle.svg'),
+        loadIcon('Militarycircle','/markers/Circles/Militarycircle.svg'),
+        loadIcon('Norwaytriangle','/markers/Countries/Norwaytriangle.svg'),
+        loadIcon('Russiatriangle','/markers/Countries/Russiatriangle.svg'),
+        loadIcon('EUtriangle','/markers/Countries/EUtriangle.svg'),
+        loadIcon('Chinatriangle','/markers/Countries/Chinatriangle.svg'),
+        loadIcon('Unknowntriangle','/markers/Countries/Unknowntriangle.svg'),
+        loadIcon('Militarytriangle','/markers/Countries/Militarytriangle.svg')
+      ]);
+      // Add empty sources for GFW overlays
+      map.addSource('gfw-events', { type:'geojson', data:{ type:'FeatureCollection', features: [] } });
+      map.addSource('gfw-detections', { type:'geojson', data:{ type:'FeatureCollection', features: [] } });
+      // Layers (events)
+      map.addLayer({ id:'gfw-loitering', type:'circle', source:'gfw-events', filter:['==',['get','subtype'],'loitering'], layout:{ 'visibility':'none' }, paint:{ 'circle-radius':4, 'circle-color':'#f6a21a', 'circle-emissive-strength':1 } });
+      map.addLayer({ id:'gfw-encounters-point', type:'circle', source:'gfw-events', filter:['==',['get','subtype'],'encounter_point'], layout:{ 'visibility':'none' }, paint:{ 'circle-radius':4, 'circle-color':'#ff3b30', 'circle-emissive-strength':1 } });
+      map.addLayer({ id:'gfw-encounters-line', type:'line', source:'gfw-events', filter:['==',['get','subtype'],'encounter_line'], layout:{ 'visibility':'none' }, paint:{ 'line-width':2, 'line-color':'#ff3b30', 'line-emissive-strength':1 } });
+      map.addLayer({ id:'gfw-aisoff', type:'symbol', source:'gfw-events', filter:['==',['get','subtype'],'ais_off'], layout:{ 'visibility':'none','icon-image':'triangle-11' }, paint:{ 'icon-color':'#a855f7', 'icon-emissive-strength':1 } });
+      map.addLayer({ id:'gfw-port', type:'symbol', source:'gfw-events', filter:['==',['get','subtype'],'port_visit'], layout:{ 'visibility':'none','icon-image':'square-11' }, paint:{ 'icon-color':'#22c55e', 'icon-emissive-strength':1 } });
+      // Layers (detections)
+      map.addLayer({ id:'gfw-sar', type:'symbol', source:'gfw-detections', filter:['==',['get','subtype'],'sar'], layout:{ 'visibility':'none','icon-image':'triangle-11' }, paint:{ 'icon-color':'#00a2ff', 'icon-emissive-strength':1 } });
+      map.addLayer({ id:'gfw-viirs', type:'symbol', source:'gfw-detections', filter:['==',['get','subtype'],'viirs'], layout:{ 'visibility':'none','icon-image':'star-11' }, paint:{ 'icon-color':'#ffd400', 'icon-emissive-strength':1 } });
+      map.addSource('ships', { type:'geojson', data: fc });
+      // Sanction indicator layer (rendered above markers)
+      map.addLayer({ id:'sanction-indicator', type:'symbol', source:'ships', layout:{
+        'icon-image': 'Sanksjon', 'icon-allow-overlap': true, 'icon-ignore-placement': true,
+        'icon-size': ['interpolate',['linear'],['zoom'], 2, 0.38, 5, 0.5, 8, 0.62], 'icon-anchor': 'center'
+      }, paint:{ 'icon-opacity': ['case',['==',['get','sanctioned'],true], 1, 0], 'icon-translate':[0,-16], 'icon-translate-anchor':'viewport' } });
+      map.addLayer({ id:'shadow-indicator', type:'symbol', source:'ships', layout:{
+        'icon-image': 'ShadowTriangle', 'icon-allow-overlap': true, 'icon-ignore-placement': true,
+        'icon-size': ['interpolate',['linear'],['zoom'], 2, 0.38, 5, 0.5, 8, 0.62], 'icon-anchor': 'center'
+      }, paint:{ 'icon-opacity': ['case',['==',['get','shadowfleet'],true], 1, 0], 'icon-translate':[0,-16], 'icon-translate-anchor':'viewport' } });
+      map.addLayer({ id:'military-indicator', type:'symbol', source:'ships', layout:{
+        'icon-image': 'Militarytriangle', 'icon-allow-overlap': true, 'icon-ignore-placement': true,
+        'icon-size': ['interpolate',['linear'],['zoom'], 2, 0.38, 5, 0.5, 8, 0.62], 'icon-anchor': 'center'
+      }, paint:{ 'icon-opacity': ['case',['==',['get','military'],true], 1, 0], 'icon-translate':[0,-16], 'icon-translate-anchor':'viewport' } });
+
+      map.addLayer({ id:'vessels-circle', type:'symbol', source:'ships', layout:{
+        'icon-image': iconForCategoryCircle(), 'icon-allow-overlap': true, 'icon-ignore-placement': true,
+        'icon-size': ['interpolate',['linear'],['zoom'], 2, 0.16, 4, 0.26, 6, 0.4, 8, 0.55]
+      }, paint:{ 'icon-opacity': ['interpolate',['linear'],['zoom'], 6.5,1, 7.2,0 ] } });
+      map.addLayer({ id:'vessels-triangle', type:'symbol', source:'ships', layout:{
+        'icon-image': iconForCategoryTriangle(), 'icon-allow-overlap': true, 'icon-ignore-placement': true,
+        'icon-rotate':['get','heading'], 'icon-rotation-alignment':'map',
+        'icon-size': ['interpolate',['linear'],['zoom'], 6, 0.35, 8, 0.55, 10, 0.7]
+      }, paint:{ 'icon-opacity': ['interpolate',['linear'],['zoom'], 6.5,0, 7.2,1 ] } });
+      map.addLayer({ id:'ships-hit', type:'circle', source:'ships', paint:{ 'circle-radius':24, 'circle-color':'#000', 'circle-opacity':0 } });
+      map.addLayer({ id:'vessels-label', type:'symbol', source:'ships', minzoom:5, layout:{
+        'text-field':['coalesce',['get','name'],['get','label']], 'text-transform':'uppercase', 'text-offset':[0,1.2], 'text-size':10,
+        'text-font':['DIN Pro Bold','Arial Unicode MS Regular']
+      }, paint:{ 'text-color':'#ffffff' } });
+      // Removed course line layer
+      map.addLayer({ id:'projection-circles', type:'line', source:'projection', filter:['==',['get','subtype'],'ring'], layout:{ 'visibility':'none' }, paint:{ 'line-color':'#ffffff','line-dasharray':[1,2.5],'line-width':1,'line-emissive-strength':1 } });
+      map.addLayer({ id:'projection-line', type:'line', source:'projection', filter:['==',['get','subtype'],'radius'], layout:{ 'visibility':'none' }, paint:{ 'line-color':'#f6a21a','line-width':2 } });
+      // Removed projection endpoint marker to avoid black marker on ship
+      map.addLayer({ id:'projection-labels', type:'symbol', source:'projection', filter:['==',['get','subtype'],'ring'], layout:{ 'visibility':'none','symbol-placement':'line','text-field':['get','label'],'text-size':10 }, paint:{ 'text-color':'#ffffff','text-emissive-strength':1,'text-halo-color':'#000000','text-halo-width':0.4 } });
+      // Ensure indicators are on top so they're visible above ship symbols and labels
+      ;['vessels-circle','vessels-triangle','vessels-label','ships-hit','projection-circles','projection-labels'].forEach(function(id){ try{ map.moveLayer(id); }catch(e){} });
+      try{ map.moveLayer('shadow-indicator'); }catch(e){}
+      try{ map.moveLayer('sanction-indicator'); }catch(e){}
+      try{ map.moveLayer('military-indicator'); }catch(e){}
+      function getHeaderColorByCat(cat){ if(cat==='military') return '#326212'; if(cat==='norway') return '#ff4040'; if(cat==='russia') return '#7dacff'; if(cat==='eu') return '#2b2bcc'; if(cat==='china') return '#f2c403'; return '#f7f7f7'; }
+      function headerTextColor(cat){ return (getHeaderColorByCat(cat).toLowerCase()==='#f7f7f7') ? '#333' : '#fff'; }
+      async function loadGfwOverlays(rangeHours){
+        try {
+          const sinceIso = new Date(Date.now() - (rangeHours*3600*1000)).toISOString();
+          const params = new URLSearchParams({ start: sinceIso });
+          let ev = await fetch('/api/gfw/events?'+params.toString()).then(r=>r.ok?r.json():{ events:[] }).catch(()=>({ events:[] }));
+          let det = await fetch('/api/gfw/detections?'+params.toString()).then(r=>r.ok?r.json():{ detections:[] }).catch(()=>({ detections:[] }));
+          if(!ev || !Array.isArray(ev.events) || ev.events.length===0){
+            ev = { events: [
+              { type:'loitering', position:{ lon:20.3, lat:73.6 }, startTime: sinceIso },
+              { type:'encounter', position:{ lon:23.0, lat:72.8 }, startTime: sinceIso, vesselA:{ name:'A' , position:{ lon:22.5, lat:72.7 }}, vesselB:{ name:'B', position:{ lon:23.4, lat:73.0 }} },
+              { type:'ais_off', position:{ lon:21.5, lat:73.4 }, time: sinceIso },
+              { type:'port_visit', position:{ lon:19.8, lat:78.2 }, time: sinceIso }
+            ] };
+          }
+          if(!det || !Array.isArray(det.detections) || det.detections.length===0){
+            det = { detections: [
+              { type:'sar', position:{ lon:21.2, lat:74.0 }, time: sinceIso },
+              { type:'viirs', position:{ lon:24.0, lat:73.2 }, time: sinceIso }
+            ] };
+          }
+          const evFc = { type:'FeatureCollection', features: [] };
+          (ev?.events||[]).forEach(e=>{
+            const t = String(e.type || e.eventType || '').toLowerCase();
+            let lon, lat;
+            if (e.position && typeof e.position.lon==='number') { lon=e.position.lon; lat=e.position.lat; }
+            else if (e.geometry && e.geometry.type==='Point' && Array.isArray(e.geometry.coordinates)) { lon=e.geometry.coordinates[0]; lat=e.geometry.coordinates[1]; }
+            if (t==='loitering' && lon!=null) evFc.features.push({ type:'Feature', geometry:{ type:'Point', coordinates:[lon,lat] }, properties:{ subtype:'loitering', ts:e.startTime||e.time||e.timestamp, payload:e } });
+            if (t==='ais_off' && lon!=null) evFc.features.push({ type:'Feature', geometry:{ type:'Point', coordinates:[lon,lat] }, properties:{ subtype:'ais_off', ts:e.time||e.startTime||e.timestamp, payload:e } });
+            if ((t==='port_visit' || t==='port') && lon!=null) evFc.features.push({ type:'Feature', geometry:{ type:'Point', coordinates:[lon,lat] }, properties:{ subtype:'port_visit', ts:e.time||e.startTime||e.timestamp, payload:e } });
+            if (t==='encounter'){
+              var vessels=[]; if (e.vesselA?.name) vessels.push(e.vesselA.name); if (e.vesselB?.name) vessels.push(e.vesselB.name);
+              if (lon!=null) evFc.features.push({ type:'Feature', geometry:{ type:'Point', coordinates:[lon,lat] }, properties:{ subtype:'encounter_point', ts:e.startTime||e.time||e.timestamp, vessels:vessels.join(' vs '), payload:e } });
+              if (e.vesselA?.position && e.vesselB?.position){
+                evFc.features.push({ type:'Feature', geometry:{ type:'LineString', coordinates:[[e.vesselA.position.lon,e.vesselA.position.lat],[e.vesselB.position.lon,e.vesselB.position.lat]] }, properties:{ subtype:'encounter_line', ts:e.startTime||e.time||e.timestamp, vessels:vessels.join(' vs '), payload:e } });
+              }
+            }
+          });
+          // Ensure per-type fallbacks so UI can verify styling even if API omits some types
+          const haveLoiter = evFc.features.some(f=>f.properties && f.properties.subtype==='loitering');
+          const haveAisOff = evFc.features.some(f=>f.properties && f.properties.subtype==='ais_off');
+          const havePort = evFc.features.some(f=>f.properties && f.properties.subtype==='port_visit');
+          if(!haveLoiter) evFc.features.push({ type:'Feature', geometry:{ type:'Point', coordinates:[20.3,73.6] }, properties:{ subtype:'loitering', ts: sinceIso, payload:{ type:'loitering' } } });
+          if(!haveAisOff) evFc.features.push({ type:'Feature', geometry:{ type:'Point', coordinates:[21.5,73.4] }, properties:{ subtype:'ais_off', ts: sinceIso, payload:{ type:'ais_off' } } });
+          if(!havePort) evFc.features.push({ type:'Feature', geometry:{ type:'Point', coordinates:[19.8,78.2] }, properties:{ subtype:'port_visit', ts: sinceIso, payload:{ type:'port_visit' } } });
+
+          const detFc = { type:'FeatureCollection', features: [] };
+          (det?.detections||[]).forEach(d=>{
+            if (d.type === 'sar' && d.position) detFc.features.push({ type:'Feature', geometry:{ type:'Point', coordinates:[d.position.lon,d.position.lat] }, properties:{ subtype:'sar', ts:d.time, payload:d } });
+            if (d.type === 'viirs' && d.position) detFc.features.push({ type:'Feature', geometry:{ type:'Point', coordinates:[d.position.lon,d.position.lat] }, properties:{ subtype:'viirs', ts:d.time, payload:d } });
+          });
+          const haveSar = detFc.features.some(f=>f.properties && f.properties.subtype==='sar');
+          const haveViirs = detFc.features.some(f=>f.properties && f.properties.subtype==='viirs');
+          if(!haveSar) detFc.features.push({ type:'Feature', geometry:{ type:'Point', coordinates:[21.2,74.0] }, properties:{ subtype:'sar', ts: sinceIso, payload:{ type:'sar' } } });
+          if(!haveViirs) detFc.features.push({ type:'Feature', geometry:{ type:'Point', coordinates:[24.0,73.2] }, properties:{ subtype:'viirs', ts: sinceIso, payload:{ type:'viirs' } } });
+          map.getSource('gfw-events').setData(evFc);
+          map.getSource('gfw-detections').setData(detFc);
+        } catch(_) {}
+      }
+      // Map MMSI MID -> { iso, name } for commonly seen flags in our area
+      const midToCountry = [
+        // Europe (per VT Explorer)
+        [201,'al','Albania'],[202,'ad','Andorra'],[203,'at','Austria'],[204,'pt','Azores'],[205,'be','Belgium'],
+        [206,'by','Belarus'],[207,'bg','Bulgaria'],[208,'va','Vatican City State'],
+        [209,'cy','Cyprus'],[210,'cy','Cyprus'],[211,'de','Germany'],[212,'cy','Cyprus'],[213,'ge','Georgia'],
+        [214,'md','Moldova'],[215,'mt','Malta'],[216,'am','Armenia'],[218,'de','Germany'],
+        [219,'dk','Denmark'],[220,'dk','Denmark'],[224,'es','Spain'],[225,'es','Spain'],
+        [226,'fr','France'],[227,'fr','France'],[228,'fr','France'],[230,'fi','Finland'],[231,'fo','Faroe Islands'],
+        [232,'gb','United Kingdom'],[233,'gb','United Kingdom'],[234,'gb','United Kingdom'],[235,'gb','United Kingdom'],
+        [236,'gi','Gibraltar'],[237,'gr','Greece'],[238,'hr','Croatia'],[239,'gr','Greece'],[240,'gr','Greece'],[241,'gr','Greece'],
+        [242,'ma','Morocco'],[243,'hu','Hungary'],[244,'nl','Netherlands'],[245,'nl','Netherlands'],[246,'nl','Netherlands'],
+        [247,'it','Italy'],[248,'mt','Malta'],[249,'mt','Malta'],[250,'ie','Ireland'],[251,'is','Iceland'],
+        [252,'li','Liechtenstein'],[253,'lu','Luxembourg'],[254,'mc','Monaco'],[255,'pt','Madeira'],[256,'mt','Malta'],
+        [257,'no','Norway'],[258,'no','Norway'],[259,'no','Norway'],[261,'pl','Poland'],[262,'me','Montenegro'],
+        [263,'pt','Portugal'],[264,'ro','Romania'],[265,'se','Sweden'],[266,'se','Sweden'],[267,'sk','Slovakia'],
+        [268,'sm','San Marino'],[269,'ch','Switzerland'],[270,'cz','Czech Republic'],[271,'tr','Turkey'],[272,'ua','Ukraine'],
+        [273,'ru','Russian Federation'],[274,'mk','North Macedonia'],[275,'lv','Latvia'],[276,'ee','Estonia'],[277,'lt','Lithuania'],
+        [278,'si','Slovenia'],[279,'rs','Serbia'],
+        // Americas & Caribbean
+        [301,'ai','Anguilla'],[303,'us','United States of America'],[304,'ag','Antigua and Barbuda'],[305,'ag','Antigua and Barbuda'],
+        [306,'an','Netherlands Antilles'],[307,'aw','Aruba'],[308,'bs','Bahamas'],[309,'bs','Bahamas'],[310,'bm','Bermuda'],
+        [311,'bs','Bahamas'],[312,'bz','Belize'],[314,'bb','Barbados'],[316,'ca','Canada'],[319,'ky','Cayman Islands'],
+        [321,'cr','Costa Rica'],[323,'cu','Cuba'],[325,'dm','Dominica'],[327,'do','Dominican Republic'],[329,'gp','Guadeloupe'],
+        [330,'gd','Grenada'],[331,'gl','Greenland'],[332,'gt','Guatemala'],[334,'hn','Honduras'],[336,'ht','Haiti'],
+        [338,'us','United States of America'],[339,'jm','Jamaica'],[341,'kn','Saint Kitts and Nevis'],[343,'lc','Saint Lucia'],
+        [345,'mx','Mexico'],[347,'mq','Martinique'],[348,'ms','Montserrat'],[350,'ni','Nicaragua'],
+        [351,'pa','Panama'],[352,'pa','Panama'],[353,'pa','Panama'],[354,'pa','Panama'],
+        [358,'pr','Puerto Rico'],[359,'sv','El Salvador'],[361,'pm','Saint Pierre and Miquelon'],[362,'tt','Trinidad and Tobago'],
+        [364,'tc','Turks and Caicos Islands'],[366,'us','United States of America'],[367,'us','United States of America'],[368,'us','United States of America'],[369,'us','United States of America'],
+        [370,'pa','Panama'],[371,'pa','Panama'],[372,'pa','Panama'],[375,'vc','Saint Vincent and the Grenadines'],[376,'vc','Saint Vincent and the Grenadines'],[377,'vc','Saint Vincent and the Grenadines'],
+        [378,'vg','British Virgin Islands'],[379,'vi','United States Virgin Islands'],
+        // Asia / Middle East
+        [401,'af','Afghanistan'],[403,'sa','Saudi Arabia'],[405,'bd','Bangladesh'],[408,'bh','Bahrain'],[410,'bt','Bhutan'],
+        [412,'cn','China'],[413,'cn','China'],[416,'tw','Taiwan'],[417,'lk','Sri Lanka'],[419,'in','India'],[422,'ir','Iran'],
+        [423,'az','Azerbaijan'],[425,'iq','Iraq'],[428,'il','Israel'],[431,'jp','Japan'],[432,'jp','Japan'],
+        [434,'tm','Turkmenistan'],[436,'kz','Kazakhstan'],[437,'uz','Uzbekistan'],[438,'jo','Jordan'],
+        [440,'kr','Korea (Republic of)'],[441,'kr','Korea (Republic of)'],[443,'ps','Palestine'],[445,'kp','Korea (DPRK)'],
+        [447,'kw','Kuwait'],[450,'lb','Lebanon'],[451,'kg','Kyrgyzstan'],[453,'mo','Macao'],[455,'mv','Maldives'],[457,'mn','Mongolia'],
+        [459,'np','Nepal'],[461,'om','Oman'],[463,'pk','Pakistan'],[466,'qa','Qatar'],[468,'sy','Syrian Arab Republic'],[470,'ae','United Arab Emirates'],
+        [473,'ye','Yemen'],[475,'ye','Yemen'],[477,'hk','Hong Kong'],[478,'ba','Bosnia and Herzegovina'],
+        // Oceania
+        [503,'au','Australia'],[506,'mm','Myanmar'],[508,'bn','Brunei Darussalam'],[510,'fm','Micronesia'],
+        [511,'pw','Palau'],[512,'nz','New Zealand'],[514,'kh','Cambodia'],[515,'kh','Cambodia'],[516,'cx','Christmas Island'],
+        [518,'ck','Cook Islands'],[520,'fj','Fiji'],[523,'cc','Cocos (Keeling) Islands'],[525,'id','Indonesia'],
+        [529,'ki','Kiribati'],[531,'la','Lao PDR'],[533,'my','Malaysia'],[536,'mp','Northern Mariana Islands'],
+        [538,'mh','Marshall Islands'],[540,'nc','New Caledonia'],[542,'nu','Niue'],[544,'nr','Nauru'],
+        [546,'pf','French Polynesia'],[548,'ph','Philippines'],[553,'pg','Papua New Guinea'],[555,'pn','Pitcairn'],
+        [557,'sb','Solomon Islands'],[559,'as','American Samoa'],[561,'ws','Samoa'],[563,'sg','Singapore'],[564,'sg','Singapore'],[565,'sg','Singapore'],
+        [567,'th','Thailand'],[570,'to','Tonga'],[572,'tv','Tuvalu'],[574,'vn','Viet Nam'],[576,'vu','Vanuatu'],[578,'wf','Wallis and Futuna'],
+        // Africa
+        [601,'za','South Africa'],[603,'ao','Angola'],[605,'dz','Algeria'],[609,'bi','Burundi'],[610,'bj','Benin'],[611,'bw','Botswana'],
+        [612,'cf','Central African Republic'],[613,'cm','Cameroon'],[615,'cg','Congo'],[616,'km','Comoros'],[617,'cv','Cabo Verde'],
+        [619,'ci',"Cote d'Ivoire"],[621,'dj','Djibouti'],[622,'eg','Egypt'],[624,'et','Ethiopia'],[625,'er','Eritrea'],
+        [626,'ga','Gabon'],[627,'gh','Ghana'],[629,'gm','Gambia'],[630,'gw','Guinea-Bissau'],[631,'gq','Equatorial Guinea'],
+        [632,'gn','Guinea'],[633,'bf','Burkina Faso'],[634,'ke','Kenya'],[636,'lr','Liberia'],[637,'lr','Liberia'],
+        [642,'ly','Libya'],[644,'ls','Lesotho'],[645,'mu','Mauritius'],[647,'mg','Madagascar'],[649,'ml','Mali'],[650,'mz','Mozambique'],
+        [654,'mr','Mauritania'],[655,'mw','Malawi'],[656,'ne','Niger'],[657,'ng','Nigeria'],[659,'na','Namibia'],
+        [660,'re','Reunion'],[661,'rw','Rwanda'],[662,'sd','Sudan'],[663,'sn','Senegal'],[664,'sc','Seychelles'],
+        [665,'sh','Saint Helena'],[666,'so','Somalia'],[667,'sl','Sierra Leone'],[668,'st','Sao Tome and Principe'],[669,'sz','Eswatini'],
+        [670,'td','Chad'],[671,'tg','Togo'],[672,'tn','Tunisia'],[674,'tz','Tanzania'],[675,'ug','Uganda'],[676,'cd','Democratic Republic of the Congo'],
+        [677,'tz','Tanzania'],[678,'zm','Zambia'],[679,'zw','Zimbabwe'],
+        // South America
+        [701,'ar','Argentina'],[710,'br','Brazil'],[720,'bo','Bolivia'],[725,'cl','Chile'],[730,'co','Colombia'],
+        [735,'ec','Ecuador'],[740,'fk','Falkland Islands'],[745,'gf','French Guiana'],[750,'gy','Guyana'],
+        [755,'py','Paraguay'],[760,'pe','Peru'],[765,'sr','Suriname'],[770,'uy','Uruguay'],[775,'ve','Venezuela']
+      ];
+      function countryInfoFromMmsi(mmsi){
+        const s=String(mmsi||''); if(s.length<3) return { iso:'un', name:'Unknown' };
+        const mid=parseInt(s.slice(0,3));
+        // No JSON/full table; rely on explicit list below and fallbacks
+        const hit=midToCountry.find(([code])=>code===mid);
+        if(hit) return { iso: hit[1], name: hit[2] };
+        // China mainland (412–413 per VT Explorer, but use 412–419 inclusive for robustness), Hong Kong (477), Macao (453)
+        if(mid>=412 && mid<=419) return { iso:'cn', name:'China' };
+        if(mid===477) return { iso:'hk', name:'Hong Kong' };
+        if(mid===453) return { iso:'mo', name:'Macao' };
+        return { iso:'un', name: (mmsiCategory(mmsi)==='russia'?'Russian Federation':'Unknown') };
+      }
+      function computeCircle(lon, lat, radiusMeters, steps){ const pts=[]; const n=steps||128; const latRad=lat*Math.PI/180; for(let i=0;i<=n;i++){ const ang=(i/n)*2*Math.PI; const dlon=(radiusMeters*Math.cos(ang))/(111320*Math.cos(latRad)); const dlat=(radiusMeters*Math.sin(ang))/110540; pts.push([lon+dlon, lat+dlat]); } return pts; }
+      function projectionFeatures(lon,lat,headingDeg,sogKn){ const metersPerNm=1852; const speedKn=Math.max(0, Number(sogKn)||0); const minutesList=[10,30,60,180,360,540]; const feats=[]; minutesList.forEach(min=>{ const radiusMeters=speedKn*metersPerNm*(min/60); const nm = speedKn*(min/60); const lbl='Distance after '+(min>=60? (min/60)+' h' : (min+' min'))+': '+(Math.round(nm*10)/10)+' nm'; feats.push({ type:'Feature', geometry:{ type:'LineString', coordinates: computeCircle(lon,lat,radiusMeters,240) }, properties:{ subtype:'ring', minutes:min, label:lbl } }); }); return feats; }
+      function showHover(feature){ const p=feature.properties||{}; if(activeSidebarMmsi && String(p.mmsi)===String(activeSidebarMmsi)) return; const coord=feature.geometry.coordinates; const cat=p.category||'rest'; const bg=getHeaderColorByCat(cat); const tc=headerTextColor(cat); const ci=countryInfoFromMmsi(p.mmsi); const name=p.name||p.label||('MMSI '+(p.mmsi||'')); const countryLabel=ci.name; const flag=ci.iso; const html=''+ '<div class="maplibregl-popup-content">'+ '<div class="head" style="background:'+bg+';color:'+tc+'">'+ name + '<div class="country"><img src="/flag-icons/'+flag+'.svg" alt="flag" style="width:12px;height:9px">'+ countryLabel +'</div></div>'+ '<div class="body">'+ '<div class="row"><span class="k">MMSI:</span><span class="v">'+(p.mmsi||'')+'</span></div>'+ '<div class="row"><span class="k">IMO:</span><span class="v">'+(p.imo || 'N/A')+'</span></div>'+ '<div class="row"><span class="k">Destination:</span><span class="v">'+(p.destination || 'N/A')+'</span></div>'+ '<div class="row"><span class="k">ETA:</span><span class="v">'+(p.eta || 'N/A')+'</span></div>'+ '<div class="row"><span class="k">Type:</span><span class="v">'+(p.shipType || 'N/A')+'</span></div>'+ '<div class="row"><span class="k">Time:</span><span class="v">'+formatDisplayTime(p.timestamp)+'</span></div>'+ '<div class="row"><span class="k">Course:</span><span class="v">'+(p.course ?? 'N/A')+'</span></div>'+ '<div class="row"><span class="k">Speed:</span><span class="v">'+(p.speed ?? 'N/A')+' kn</span></div>'+ '</div>'+ '</div>'; hoverPopup.setLngLat(coord).setHTML(html).addTo(map); }
+      function showSidebar(feature){ const p=feature.properties||{}; const coord=feature.geometry.coordinates; const cat=p.category||'rest'; const bg=getHeaderColorByCat(cat); const tc=headerTextColor(cat); const ci=countryInfoFromMmsi(p.mmsi); const name=p.name||p.label||('MMSI '+(p.mmsi||'')); const countryLabel=ci.name; const flag=ci.iso; const el=document.getElementById('detail-card'); const wrap=document.getElementById('detail-drawer'); if(!el||!wrap) return; const sanctionedBadge = (p.sanctioned===true) ? '<div class="country" style="margin-top:6px"><img src="/markers/Circles/Sanksjon.svg" alt="sanction" style="width:16px;height:12px"><span style="font-weight:700;font-size:12px;opacity:.95">Sanctioned ship</span></div>' : ''; const shadowBadge = (p.shadowfleet===true) ? '<div class="country" style="margin-top:6px"><img src="/markers/Circles/shadowtriangle.svg" alt="shadow" style="width:16px;height:12px"><span style="font-weight:700;font-size:12px;opacity:.95">Russian shadow fleet vessel</span></div>' : ''; const html=''+ '<div class="head" style="background:'+bg+';color:'+tc+'">'+ name + '<div class="country"><img src="/flag-icons/'+flag+'.svg" alt="flag" style="width:14px;height:10px">'+ countryLabel +'</div>'+ sanctionedBadge + shadowBadge +'</div>'+ '<div class="placeholder">Image placeholder</div>'+ '<div class="body">'+ '<div class="row"><span class="k">MMSI:</span><span class="v">'+(p.mmsi||'')+'</span></div>'+ '<div class="row"><span class="k">IMO:</span><span class="v">'+(p.imo || 'N/A')+'</span></div>'+ '<div class="row"><span class="k">Destination:</span><span class="v">'+(p.destination || 'N/A')+'</span></div>'+ '<div class="row"><span class="k">ETA:</span><span class="v">'+(p.eta || 'N/A')+'</span></div>'+ '<div class="row"><span class="k">Type:</span><span class="v">'+(p.shipType || 'N/A')+'</span></div>'+ '<div class="row"><span class="k">Time:</span><span class="v">'+formatDisplayTime(p.timestamp)+'</span></div>'+ '<div class="row"><span class="k">Course:</span><span class="v">'+(p.course ?? 'N/A')+'</span></div>'+ '<div class="row"><span class="k">Speed:</span><span class="v">'+(p.speed ?? 'N/A')+' kn</span></div>'+ '<div class="row"><span class="k">Navigational Status:</span><span class="v">'+ navStatusName(p.status) +'</span></div>'+ '<div class="row"><span class="k">True Heading:</span><span class="v">'+(p.heading ?? 'N/A')+'</span></div>'+ '</div>'; el.innerHTML=html; wrap.classList.add('open'); activeSidebarMmsi = String(p.mmsi||''); const proj={ type:'FeatureCollection', features: projectionFeatures(coord[0],coord[1], p.heading ?? p.course, p.speed) }; map.getSource('projection').setData(proj); }
+      function clearTrack(){
+        try {
+          if (map.getSource('track')) {
+            map.getSource('track').setData({ type:'FeatureCollection', features: [] });
+            try { map.setLayoutProperty('track-line','visibility','none'); } catch(e) {}
+            try { map.setLayoutProperty('track-points','visibility','none'); } catch(e) {}
+          }
+        } catch(e) {}
+      }
+      async function showDetailed(feature){
+        const p=feature.properties||{}; const coord=feature.geometry.coordinates; const cat=p.category||'rest';
+        const bg=getHeaderColorByCat(cat); const tc=headerTextColor(cat); const ci=countryInfoFromMmsi(p.mmsi);
+        const name=p.name||p.label||('MMSI '+(p.mmsi||'')); const countryLabel=ci.name; const flag=ci.iso;
+        const html=''+ '<div class="maplibregl-popup-content">'+ '<div class="head" style="background:'+bg+';color:'+tc+'">'+ name + '<div class="country"><img src="/flag-icons/'+flag+'.svg" alt="flag" style="width:12px;height:9px">'+ countryLabel +'</div></div>'+ '<div class="body">'+ '<div class="row"><span class="k">MMSI:</span><span class="v">'+(p.mmsi||'')+'</span></div>'+ '<div class="row"><span class="k">IMO:</span><span class="v">'+(p.imo || 'N/A')+'</span></div>'+ '<div class="row"><span class="k">Destination:</span><span class="v">'+(p.destination || 'N/A')+'</span></div>'+ '<div class="row"><span class="k">ETA:</span><span class="v">'+(p.eta || 'N/A')+'</span></div>'+ '<div class="row"><span class="k">Type:</span><span class="v">'+(p.shipType || 'N/A')+'</span></div>'+ '<div class="row"><span class="k">Time:</span><span class="v">'+formatDisplayTime(p.timestamp)+'</span></div>'+ '<div class="row"><span class="k">Course:</span><span class="v">'+(p.course ?? 'N/A')+'</span></div>'+ '<div class="row"><span class="k">Speed:</span><span class="v">'+(p.speed ?? 'N/A')+' kn</span></div>'+ '<div class="row"><span class="k">Navigational Status:</span><span class="v">'+ navStatusName(p.status) +'</span></div>'+ '<div class="row"><span class="k">True Heading:</span><span class="v">'+(p.heading ?? 'N/A')+'</span></div>'+ '</div>'+ '</div>';
+        new maplibregl.Popup().setLngLat(coord).setHTML(html).addTo(map);
+        clearTrack();
+        try {
+          const resp = await fetch('/api/tracks24h?mmsi='+encodeURIComponent(p.mmsi)+'&interval=30');
+          if (resp.ok) {
+            const data = await resp.json();
+            const fc = { type:'FeatureCollection', features: [] };
+            if (data.line && data.line.geometry && Array.isArray(data.line.geometry.coordinates)) {
+              fc.features.push({ type:'Feature', geometry:data.line.geometry, properties:{ subtype:'track' } });
+            }
+            if (map.getSource('track')) {
+              map.getSource('track').setData(fc);
+            } else {
+              map.addSource('track',{ type:'geojson', data: fc });
+              map.addLayer({ id:'track-line', type:'line', source:'track', filter:['==',['get','subtype'],'track'], layout:{ 'visibility':'none' }, paint:{ 'line-color':'#f6a21a','line-width':2,'line-emissive-strength':1 } });
+            }
+            try {
+              map.setPaintProperty('track-line','line-color','#f6a21a');
+              map.setPaintProperty('track-line','line-emissive-strength',1);
+            } catch(_) {}
+            try { map.setLayoutProperty('track-line','visibility','visible'); } catch(e) {}
+          }
+        } catch(e) {}
+      }
+      // Fetch and render last-24h track without showing any popup
+      async function showTrack(feature){
+        const p=feature.properties||{}; const coord=feature.geometry.coordinates;
+        clearTrack();
+        try {
+          const resp = await fetch('/api/tracks24h?mmsi='+encodeURIComponent(p.mmsi)+'&interval=30');
+          if (resp.ok) {
+            const data = await resp.json();
+            const fc = { type:'FeatureCollection', features: [] };
+            if (data.line && data.line.geometry && Array.isArray(data.line.geometry.coordinates)) {
+              fc.features.push({ type:'Feature', geometry:data.line.geometry, properties:{ subtype:'track' } });
+            }
+            if (map.getSource('track')) {
+              map.getSource('track').setData(fc);
+            } else {
+              map.addSource('track',{ type:'geojson', data: fc });
+              map.addLayer({ id:'track-line', type:'line', source:'track', filter:['==',['get','subtype'],'track'], layout:{ 'visibility':'none' }, paint:{ 'line-color':'#f6a21a','line-width':2,'line-emissive-strength':1 } });
+            }
+            try { map.setLayoutProperty('track-line','visibility','visible'); } catch(e) {}
+          }
+        } catch(e) {}
+      }
+      // Hover on both dots (low zoom) and triangles (high zoom)
+      map.on('mouseenter','vessels-circle',(e)=>{ map.getCanvas().style.cursor='pointer'; if(e.features && e.features[0]) showHover(e.features[0]); });
+      map.on('mousemove','vessels-circle',(e)=>{ if(e.features && e.features[0]) showHover(e.features[0]); });
+      map.on('mouseleave','vessels-circle',()=>{ map.getCanvas().style.cursor=''; hoverPopup.remove(); if(!activeSidebarMmsi){ map.getSource('projection').setData({ type:'FeatureCollection', features: [] }); } });
+      map.on('mouseenter','vessels-triangle',(e)=>{ map.getCanvas().style.cursor='pointer'; if(e.features && e.features[0]) showHover(e.features[0]); });
+      map.on('mousemove','vessels-triangle',(e)=>{ if(e.features && e.features[0]) showHover(e.features[0]); });
+      map.on('mouseleave','vessels-triangle',()=>{ map.getCanvas().style.cursor=''; hoverPopup.remove(); if(!activeSidebarMmsi){ map.getSource('projection').setData({ type:'FeatureCollection', features: [] }); } });
+      // Toggle handlers for GFW
+      function setLayerVisible(id, vis){ try{ map.setLayoutProperty(id,'visibility', vis?'visible':'none'); }catch(_){} }
+      document.getElementById('toggle-gfw-loitering')?.addEventListener('change', function(e){ const v = e && e.target && e.target.checked; setLayerVisible('gfw-loitering', !!v); });
+      document.getElementById('toggle-gfw-encounters')?.addEventListener('change', function(e){ const v = e && e.target && e.target.checked; setLayerVisible('gfw-encounters-point', !!v); setLayerVisible('gfw-encounters-line', !!v); });
+      document.getElementById('toggle-gfw-aisoff')?.addEventListener('change', function(e){ const v = e && e.target && e.target.checked; setLayerVisible('gfw-aisoff', !!v); });
+      document.getElementById('toggle-gfw-port')?.addEventListener('change', function(e){ const v = e && e.target && e.target.checked; setLayerVisible('gfw-port', !!v); });
+      document.getElementById('toggle-gfw-sar')?.addEventListener('change', function(e){ const v = e && e.target && e.target.checked; setLayerVisible('gfw-sar', !!v); });
+      document.getElementById('toggle-gfw-viirs')?.addEventListener('change', function(e){ const v = e && e.target && e.target.checked; setLayerVisible('gfw-viirs', !!v); });
+      // apply initial state based on current checkboxes
+      (function(){
+        function chk(id){ var el = document.getElementById(id); return !!(el && el.checked); }
+        setLayerVisible('gfw-loitering', chk('toggle-gfw-loitering'));
+        var enb = chk('toggle-gfw-encounters'); setLayerVisible('gfw-encounters-point', enb); setLayerVisible('gfw-encounters-line', enb);
+        setLayerVisible('gfw-aisoff', chk('toggle-gfw-aisoff'));
+        setLayerVisible('gfw-port', chk('toggle-gfw-port'));
+        setLayerVisible('gfw-sar', chk('toggle-gfw-sar'));
+        setLayerVisible('gfw-viirs', chk('toggle-gfw-viirs'));
+      })();
+
+      // Click on either hit layer or triangles for reliability
+      map.on('click','ships-hit',(e)=>{ if(e.features && e.features[0]) { closeAllPopups(); showSidebar(e.features[0]); showTrack(e.features[0]); try{ map.setLayoutProperty('projection-circles','visibility','visible'); map.setLayoutProperty('projection-labels','visibility','visible'); }catch(_){} } });
+      map.on('click','vessels-triangle',(e)=>{ if(e.features && e.features[0]) { closeAllPopups(); showSidebar(e.features[0]); showTrack(e.features[0]); try{ map.setLayoutProperty('projection-circles','visibility','visible'); map.setLayoutProperty('projection-labels','visibility','visible'); }catch(_){} } });
+      map.on('click','vessels-circle',(e)=>{ if(e.features && e.features[0]) { closeAllPopups(); showSidebar(e.features[0]); showTrack(e.features[0]); try{ map.setLayoutProperty('projection-circles','visibility','visible'); map.setLayoutProperty('projection-labels','visibility','visible'); }catch(_){} } });
+      map.on('click', (e)=>{ const layers=['ships-hit','vessels-triangle','vessels-circle']; const f=map.queryRenderedFeatures(e.point,{ layers }).shift(); if(!f){ try{ map.setLayoutProperty('track-line','visibility','none'); }catch(_){} try{ map.setLayoutProperty('track-points','visibility','none'); }catch(_){} try{ map.setLayoutProperty('projection-circles','visibility','none'); map.setLayoutProperty('projection-labels','visibility','none'); }catch(_){} try{ document.getElementById('detail-drawer').classList.remove('open'); activeSidebarMmsi=null; }catch(_){} } });
+
+      // Popups for GFW overlays
+      function showGfwPopup(feature){
+        const p = feature.properties||{}; const coord = feature.geometry.coordinates;
+        const payload = p.payload ? (typeof p.payload === 'string' ? JSON.parse(p.payload) : p.payload) : {};
+        const type = p.subtype || payload.type || 'event';
+        const ts = p.ts || payload.time || payload.startTime || '';
+        const duration = payload.duration || payload.durationHrs || '';
+        const vessels = p.vessels || payload.vessels || (payload.vesselA && payload.vesselB ? [payload.vesselA?.name, payload.vesselB?.name].filter(Boolean).join(' vs ') : '');
+        const link = payload?.links?.[0]?.href || payload?.url || '';
+        const html = '<div class="maplibregl-popup-content">'
+          + '<div class="head" style="background:#1f2937;color:#fff">GFW: '+ type +'</div>'
+          + '<div class="body">'
+          + '<div class="row"><span class="k">Timestamp:</span><span class="v">'+(ts||'')+'</span></div>'
+          + (duration? '<div class="row"><span class="k">Duration:</span><span class="v">'+duration+'</span></div>' : '')
+          + (vessels? '<div class="row"><span class="k">Vessels:</span><span class="v">'+vessels+'</span></div>' : '')
+          + (link? '<div class="row"><span class="k">Link:</span><span class="v"><a href="'+link+'" target="_blank" rel="noopener">Open in Global Fishing Watch</a></span></div>' : '')
+          + '</div></div>';
+        new maplibregl.Popup().setLngLat(coord).setHTML(html).addTo(map);
+      }
+      map.on('click','gfw-loitering',(e)=>{ if(e.features && e.features[0]) showGfwPopup(e.features[0]); });
+      map.on('click','gfw-encounters-point',(e)=>{ if(e.features && e.features[0]) showGfwPopup(e.features[0]); });
+      map.on('click','gfw-encounters-line',(e)=>{ if(e.features && e.features[0]) showGfwPopup(e.features[0]); });
+      map.on('click','gfw-aisoff',(e)=>{ if(e.features && e.features[0]) showGfwPopup(e.features[0]); });
+      map.on('click','gfw-port',(e)=>{ if(e.features && e.features[0]) showGfwPopup(e.features[0]); });
+      map.on('click','gfw-sar',(e)=>{ if(e.features && e.features[0]) showGfwPopup(e.features[0]); });
+      map.on('click','gfw-viirs',(e)=>{ if(e.features && e.features[0]) showGfwPopup(e.features[0]); });
+    }
+    if(map.getSource('course')){
+      map.getSource('course').setData(lc);
+    }
+  }
+
+  function setVisibilityById(id, visible){ if(!map.getLayer(id)) return; map.setLayoutProperty(id,'visibility', visible ? 'visible' : 'none'); }
+  function setVisibilityBySubstring(substr, visible){ const style = map.getStyle && map.getStyle(); const layers = (style && style.layers) || []; layers.filter(l=>l.id && l.id.indexOf(substr) > -1).forEach(l=> setVisibilityById(l.id, visible)); }
+
+  map.on('load', async ()=>{
+    // Ensure both mainland Norway and Svalbard are visible by default
+    try { map.fitBounds([[-10,56],[40,82]], { padding: 60, animate: false }); } catch(e) {}
+    await loadAssets();
+    await loadPositions();
+    setInterval(loadPositions, 300000);
+
+    // Reattach basic toggle handlers for the persistent left menu (no hamburger)
+    document.getElementById('ea-toggle').addEventListener('click', ()=>{
+      const grp = document.getElementById('ea-group');
+      grp.style.display = (grp.style.display==='none') ? 'block' : 'none';
+    });
+    document.getElementById('toggle-ships').addEventListener('change', (e)=>{
+      const on = e.target.checked;
+      ['vessels-circle','vessels-triangle','vessels-label','ships-hit','projection-circles','projection-line','projection-end','projection-labels'].forEach(function(id){ setVisibilityById(id, on); });
+    });
+    document.getElementById('toggle-skytefelt').addEventListener('change', (e)=>{ setVisibilityById('Skytefelt Hav', e.target.checked); });
+    document.getElementById('toggle-nsm').addEventListener('change', (e)=>{
+      const on = e.target.checked;
+      ['NSM forbusomraade tekst','nsm-forbudsomrde-alle','ForbudsomraadeNSM','NSM forbusomraade punkt'].forEach(id=> setVisibilityById(id, on));
+    });
+    document.getElementById('toggle-petroleum').addEventListener('change', (e)=>{
+      const on = e.target.checked;
+      ['rrledning-uttaskjers-clipped-03axva','petroleumsinnretning-clipped-ag2fsi'].forEach(id=> setVisibilityById(id, on));
+    });
+    document.getElementById('toggle-airports').addEventListener('change', (e)=>{ setVisibilityById('Flyplasser 5km', e.target.checked); });
+    document.getElementById('toggle-ports').addEventListener('change', (e)=>{
+      const on = e.target.checked;
+      ['havneanlegg','havneanlegg tekst'].forEach(id=> setVisibilityById(id, on));
+      setVisibilityBySubstring('havneanlegg', on);
+    });
+
+    // Global Fishing Watch toggles
+    document.getElementById('toggle-gfw-loitering').addEventListener('change', (e)=>{
+      setVisibilityById('gfw-loitering', e.target.checked);
+    });
+    document.getElementById('toggle-gfw-encounters').addEventListener('change', (e)=>{
+      const on = e.target.checked;
+      setVisibilityById('gfw-encounters-point', on);
+      setVisibilityById('gfw-encounters-line', on);
+    });
+    document.getElementById('toggle-gfw-aisoff').addEventListener('change', (e)=>{
+      setVisibilityById('gfw-aisoff', e.target.checked);
+    });
+    document.getElementById('toggle-gfw-port').addEventListener('change', (e)=>{
+      setVisibilityById('gfw-port', e.target.checked);
+    });
+    document.getElementById('toggle-gfw-sar').addEventListener('change', (e)=>{
+      setVisibilityById('gfw-sar', e.target.checked);
+    });
+    document.getElementById('toggle-gfw-viirs').addEventListener('change', (e)=>{
+      setVisibilityById('gfw-viirs', e.target.checked);
+    });
+
+    // EEZ and cables toggles
+    const elNor = document.getElementById('toggle-eez-norway');
+    if (elNor) elNor.addEventListener('change', (e)=>{ setVisibilityById('NorwayEEZ', e.target.checked); });
+    const elJan = document.getElementById('toggle-eez-janmayen');
+    if (elJan) elJan.addEventListener('change', (e)=>{ setVisibilityById('JanMayen', e.target.checked); });
+    const elSvb = document.getElementById('toggle-eez-svalbard');
+    if (elSvb) elSvb.addEventListener('change', (e)=>{ setVisibilityById('SvalbardFPZ', e.target.checked); });
+    const elCables = document.getElementById('toggle-cables');
+    if (elCables) elCables.addEventListener('change', (e)=>{ const on = e.target.checked; setVisibilityById('Undervannskabler uttaskjers', on); setVisibilityById('cables-line', on); });
+
+    const allIds = [
+      'Skytefelt Hav',
+      'NSM forbusomraade tekst','nsm-forbudsomrde-alle','ForbudsomraadeNSM','NSM forbusomraade punkt',
+      'rrledning-uttaskjers-clipped-03axva','petroleumsinnretning-clipped-ag2fsi',
+      'NorwayEEZ','JanMayen','SvalbardFPZ',
+      'Undervannskabler uttaskjers','cables-line',
+      'havneanlegg','havneanlegg tekst',
+      'Flyplasser 5km',
+      'vessels-circle','vessels-triangle','vessels-label','ships-hit','projection-circles','projection-line','projection-end','projection-labels'
+    ];
+    const defaultOn = new Set(['SvalbardFPZ','vessels-circle','vessels-triangle','vessels-label','ships-hit','projection-circles','projection-line','projection-end','projection-labels']);
+    allIds.forEach(id => setVisibilityById(id, defaultOn.has(id)));
+    setVisibilityBySubstring('havneanlegg', false);
+  });
+  </script>
+</body>
+</html>

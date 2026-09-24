@@ -1,0 +1,46 @@
+{
+  "name": "@svalmap/api",
+  "version": "1.0.0",
+  "description": "SvalMap API server",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "lint": "eslint src --ext .ts",
+    "test": "vitest",
+    "type-check": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@svalmap/types": "workspace:*",
+    "@svalmap/config": "workspace:*",
+    "@turf/helpers": "^6.5.0",
+    "@turf/bbox": "^6.5.0",
+    "@turf/boolean-point-in-polygon": "^6.5.0",
+    "@turf/turf": "^6.5.0",
+    "axios": "^1.6.0",
+    "express": "^4.18.0",
+    "cors": "^2.8.5",
+    "helmet": "^7.1.0",
+    "express-rate-limit": "^7.1.0",
+    "express-validator": "^7.0.1",
+    "winston": "^3.11.0",
+    "dotenv": "^16.3.0",
+    "zod": "^3.22.0",
+    "jsonwebtoken": "^9.0.2",
+    "bcryptjs": "^2.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/express": "^4.17.0",
+    "@types/cors": "^2.8.0",
+    "@types/jsonwebtoken": "^9.0.0",
+    "@types/bcryptjs": "^2.4.0",
+    "typescript": "^5.3.0",
+    "tsx": "^4.0.0",
+    "vitest": "^1.0.0",
+    "@types/supertest": "^2.0.0",
+    "supertest": "^6.3.0"
+  }
+}
