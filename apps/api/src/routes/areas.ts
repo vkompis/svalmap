@@ -4,9 +4,11 @@ import path from 'path';
 
 const router = Router();
 
-// Absolute base paths provided by the user
-const AOI_BASE_PATH = '/Users/vegardhalkjelsvik/Dev/svalmap/data/source/Proximity markers/AOI';
-const PROXIMITY_BASE_PATH = '/Users/vegardhalkjelsvik/Dev/svalmap/data/source/Proximity markers';
+const REPO_ROOT = process.env.SVALMAP_ROOT
+  ? path.resolve(process.env.SVALMAP_ROOT)
+  : path.resolve(__dirname, '../../../..');
+const AOI_BASE_PATH = path.join(REPO_ROOT, 'data/source/Proximity markers/AOI');
+const PROXIMITY_BASE_PATH = path.join(REPO_ROOT, 'data/source/Proximity markers');
 
 function readGeoJSON(filePath: string) {
   if (!existsSync(filePath)) {
@@ -40,7 +42,11 @@ router.get('/infrastructure', (req, res) => {
     };
     const filename = map[type.toLowerCase()];
     if (!filename) {
-      return res.status(400).json({ success: false, error: 'Invalid type', timestamp: new Date().toISOString() });
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid type',
+        timestamp: new Date().toISOString(),
+      });
     }
     const filePath = path.join(PROXIMITY_BASE_PATH, filename);
     const data = readGeoJSON(filePath);
@@ -51,5 +57,3 @@ router.get('/infrastructure', (req, res) => {
 });
 
 export default router;
-
-

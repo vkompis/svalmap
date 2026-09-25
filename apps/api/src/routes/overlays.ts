@@ -14,16 +14,27 @@ const withCache = async (key: string, ttlMs: number, fetcher: () => Promise<any>
   return data;
 };
 
-// GET /api/v1/overlays/navwarnings
-router.get('/navwarnings', async (req, res) => {
+// GET /api/v1/overlays/navwarnings — active NAVAREA XIX + coastal, last 30 days by issue date
+router.get('/navwarnings', async (_req, res) => {
   try {
-    const data = await withCache('nav-xix', 15 * 60 * 1000, async () => {
-      const { data } = await axios.get('https://api.kystverket.no/api/navigationwarnings/navareaxix', { timeout: 20000 });
-      return data;
+    const data = await withCache('nav-active-30d', 15 * 60 * 1000, async () => {
+      const [navarea, coastal] = await Promise.all([
+        axios.get('https://api.kystverket.no/data/navigationwarnings/navareaxix/', { timeout: 20000 }),
+        axios.get('https://api.kystverket.no/data/navigationwarnings/coastal/', { timeout: 20000 }),
+      ]);
+      return {
+        navarea: navarea.data,
+        coastal: coastal.data,
+        note: 'Active warnings only; public API has no full historical archive',
+      };
     });
     return res.json({ success: true, data, timestamp: new Date().toISOString() });
   } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message, timestamp: new Date().toISOString() });
+    return res.status(500).json({
+      success: false,
+      error: err.message,
+      timestamp: new Date().toISOString(),
+    });
   }
 });
 
@@ -32,19 +43,22 @@ router.get('/ice', async (req, res) => {
   try {
     const type = String(req.query.type || 'edge');
     const key = `ice-${type}`;
-    const url = type === 'chart'
-      ? 'https://www.barentswatch.no/api/v1/geodata/download/icechart/?format=OLEX'
-      : 'https://www.barentswatch.no/api/v1/geodata/download/iceedge/?format=OLEX';
+    const url =
+      type === 'chart'
+        ? 'https://www.barentswatch.no/api/v1/geodata/download/icechart/?format=OLEX'
+        : 'https://www.barentswatch.no/api/v1/geodata/download/iceedge/?format=OLEX';
     const data = await withCache(key, 60 * 60 * 1000, async () => {
       const { data } = await axios.get(url, { timeout: 30000 });
       return data;
     });
     return res.json({ success: true, data, timestamp: new Date().toISOString() });
   } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message, timestamp: new Date().toISOString() });
+    return res.status(500).json({
+      success: false,
+      error: err.message,
+      timestamp: new Date().toISOString(),
+    });
   }
 });
 
 export default router;
-
-

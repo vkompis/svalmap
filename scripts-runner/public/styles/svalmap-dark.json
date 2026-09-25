@@ -19,13 +19,35 @@
     }
   },
   "sprite": "https://tiles.openfreemap.org/sprites/ofm_f384/ofm",
-  "glyphs": "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
+  "glyphs": "https://fonts.openmaptiles.org/{fontstack}/{range}.pbf",
   "layers": [
     {
       "id": "background",
       "type": "background",
       "paint": {
-        "background-color": "rgba(56, 61, 77, 1)"
+        "background-color": "#303644"
+      }
+    },
+    {
+      "id": "natural_earth",
+      "type": "raster",
+      "source": "ne2_shaded",
+      "maxzoom": 6,
+      "paint": {
+        "raster-opacity": [
+          "interpolate",
+          [
+            "exponential",
+            1.5
+          ],
+          [
+            "zoom"
+          ],
+          0,
+          0.6,
+          6,
+          0.1
+        ]
       }
     },
     {
@@ -58,7 +80,7 @@
       ],
       "paint": {
         "fill-antialias": false,
-        "fill-color": "rgba(16, 25, 35, 1)"
+        "fill-color": "#121c2a"
       }
     },
     {
@@ -91,8 +113,8 @@
         ]
       ],
       "paint": {
-        "fill-color": "rgb(12,12,12)",
-        "fill-opacity": 0.7
+        "fill-color": "rgba(70, 78, 92, 1)",
+        "fill-opacity": 0.85
       }
     },
     {
@@ -125,7 +147,7 @@
         ]
       ],
       "paint": {
-        "fill-color": "hsl(0,1%,2%)",
+        "fill-color": "rgba(90, 100, 115, 1)",
         "fill-opacity": [
           "interpolate",
           [
@@ -333,7 +355,7 @@
           ]
         ],
         "text-font": [
-          "Noto Sans Regular"
+          "Open Sans Regular"
         ],
         "text-rotation-alignment": "map",
         "text-size": 12
@@ -1554,7 +1576,7 @@
           ]
         ],
         "text-font": [
-          "Noto Sans Regular"
+          "Open Sans Regular"
         ],
         "text-max-angle": 30,
         "text-pitch-alignment": "viewport",
@@ -1612,7 +1634,7 @@
           ]
         ],
         "text-font": [
-          "Noto Sans Regular"
+          "Open Sans Regular"
         ],
         "text-pitch-alignment": "viewport",
         "text-rotation-alignment": "viewport",
@@ -1845,7 +1867,7 @@
           ]
         ],
         "text-font": [
-          "Noto Sans Regular"
+          "Open Sans Regular"
         ],
         "text-justify": "center",
         "text-offset": [
@@ -1924,7 +1946,7 @@
           ]
         ],
         "text-font": [
-          "Noto Sans Regular"
+          "Open Sans Regular"
         ],
         "text-justify": "center",
         "text-offset": [
@@ -2004,7 +2026,7 @@
           ]
         ],
         "text-font": [
-          "Noto Sans Regular"
+          "Open Sans Regular"
         ],
         "text-justify": "left",
         "text-offset": [
@@ -2102,7 +2124,7 @@
           ]
         ],
         "text-font": [
-          "Noto Sans Regular"
+          "Open Sans Regular"
         ],
         "text-justify": "left",
         "text-offset": [
@@ -2208,7 +2230,7 @@
           ]
         ],
         "text-font": [
-          "Noto Sans Regular"
+          "Open Sans Regular"
         ],
         "text-justify": "left",
         "text-offset": [
@@ -2314,7 +2336,7 @@
           ]
         ],
         "text-font": [
-          "Noto Sans Regular"
+          "Open Sans Regular"
         ],
         "text-justify": "left",
         "text-offset": [
@@ -2393,7 +2415,7 @@
           ]
         ],
         "text-font": [
-          "Noto Sans Regular"
+          "Open Sans Regular"
         ],
         "text-size": 10,
         "text-transform": "uppercase"
@@ -2473,7 +2495,7 @@
           ]
         ],
         "text-font": [
-          "Noto Sans Regular"
+          "Open Sans Regular"
         ],
         "text-size": [
           "interpolate",
@@ -2569,7 +2591,7 @@
           ]
         ],
         "text-font": [
-          "Noto Sans Regular"
+          "Open Sans Regular"
         ],
         "text-size": [
           "interpolate",
@@ -2666,7 +2688,7 @@
           ]
         ],
         "text-font": [
-          "Noto Sans Regular"
+          "Open Sans Regular"
         ],
         "text-size": [
           "interpolate",

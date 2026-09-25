@@ -1,6 +1,18 @@
 /** Vessel category / color helpers — source of truth matching scripts-runner legend */
 
-export type VesselCategory = 'norway' | 'russia' | 'eu' | 'china' | 'military' | 'rest';
+import {
+  isRussianResearchVessel,
+  RESEARCH_COLOR,
+} from './russianResearchVessels';
+
+export type VesselCategory =
+  | 'norway'
+  | 'russia'
+  | 'eu'
+  | 'china'
+  | 'military'
+  | 'research'
+  | 'rest';
 
 export const HEADER_COLORS: Record<VesselCategory, string> = {
   norway: '#ff4040',
@@ -8,6 +20,7 @@ export const HEADER_COLORS: Record<VesselCategory, string> = {
   eu: '#2b2bcc',
   china: '#f2c403',
   military: '#2b6206', // matches Mapmarkers/Militarycircle.svg
+  research: RESEARCH_COLOR,
   rest: '#f7f7f7',
 };
 
@@ -48,7 +61,13 @@ export function isMilitaryShipType(shipType: unknown): boolean {
   );
 }
 
-export function mmsiCategory(mmsi: unknown, shipType?: unknown): VesselCategory {
+export function mmsiCategory(
+  mmsi: unknown,
+  shipType?: unknown,
+  imo?: unknown
+): VesselCategory {
+  // Curated research list wins over generic Russia / military typing
+  if (isRussianResearchVessel(mmsi, imo)) return 'research';
   if (isMilitaryShipType(shipType)) return 'military';
   const s = String(mmsi || '');
   const mid = parseInt(s.slice(0, 3), 10);
@@ -85,3 +104,10 @@ export function navStatusLabel(code: unknown): string {
   if (Number.isNaN(n)) return code == null || code === '' ? 'Not available' : String(code);
   return map[n] ?? String(code);
 }
+
+export {
+  isRussianResearchVessel,
+  RUSSIAN_RESEARCH_VESSELS,
+  RUSSIAN_RESEARCH_MMSI,
+  RESEARCH_COLOR,
+} from './russianResearchVessels';

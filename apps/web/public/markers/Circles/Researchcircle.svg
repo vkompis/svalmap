@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="research-circle" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 13 13">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: #d946ef;
+      }
+    </style>
+  </defs>
+  <!-- Diamond marker for Russian research vessels (zoomed out) -->
+  <path class="cls-1" d="M6.5.4L12.6,6.5L6.5,12.6L.4,6.5Z"/>
+</svg>

@@ -4,6 +4,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import path from 'path';
 import fs from 'fs';
+import { spawn } from 'child_process';
 import { BigQuery } from '@google-cloud/bigquery';
 import axios from 'axios';
 import https from 'https';
@@ -17,11 +18,53 @@ import {
   readOpenSanctionsVesselIds,
   OPENSANCTIONS_VESSELS_CSV,
 } from './sanctionsUpdater';
+import {
+  startAisStreamClient,
+  getAisStreamVessels,
+  getAisStreamStatus,
+  vesselLengthMeters,
+  NORTH_ATLANTIC_BBOX,
+} from './aisstreamClient';
+import { isRussianResearchVessel, RUSSIAN_RESEARCH_VESSELS } from './russianResearchVessels';
+import { dataSource } from './paths';
+import {
+  deleteServerAlert,
+  emailConfigured,
+  listServerAlerts,
+  loadServerAlerts,
+  sendAlertEmail,
+  upsertServerAlert,
+} from './alertMail';
+import { startAlertWatcher } from './alertWatcher';
+
+const RESEARCH_NAME_BY_MMSI = new Map(
+  RUSSIAN_RESEARCH_VESSELS.map((v) => [v.mmsi, v.name] as const)
+);
+
+/** Prefer secure TLS; set TLS_INSECURE=1 only if a corporate proxy breaks verification. */
+function httpsAgent() {
+  return new https.Agent({ rejectUnauthorized: process.env.TLS_INSECURE !== '1' });
+}
 
 const app = express();
 app.use(helmet({ contentSecurityPolicy: false }));
-app.use(cors({ origin: true }));
+
+const API_KEY = (process.env.API_KEY || process.env.SVALMAP_API_KEY || '').trim();
+app.use(cors({
+  origin: process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(',').map((s) => s.trim())
+    : true,
+}));
 app.use(express.json());
+
+// Optional API key (set API_KEY to enforce). Health endpoints stay open.
+app.use((req, res, next) => {
+  if (!API_KEY) return next();
+  if (req.path === '/healthz' || req.path === '/api/health') return next();
+  const key = String(req.header('x-api-key') || req.query.api_key || '');
+  if (key && key === API_KEY) return next();
+  return res.status(401).json({ error: 'Unauthorized — provide X-API-Key' });
+});
 
 const PROJECT_ID = process.env.PROJECT_ID || 'svalmap';
 const BQ_DATASET = process.env.BQ_DATASET || 'svalmap.marine_osint';
@@ -36,7 +79,7 @@ function gfwClient() {
     baseURL: GFW_API_BASE,
     headers: GFW_API_TOKEN ? { Authorization: `Bearer ${GFW_API_TOKEN}` } : {},
     timeout: 120000,
-    httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+    httpsAgent: httpsAgent(),
   });
 }
 
@@ -63,14 +106,12 @@ let MILITARY_CACHE_TS = 0;
 let IMO_TO_MMSI_MAP: Map<string, string> = new Map();
 let IMO_MAP_CACHE_TS = 0;
 
-const LOCAL_SANCTIONS_CSV = '/Users/vegardhalkjelsvik/Dev/svalmap/data/source/Sanctionlist.CSV';
-const LOCAL_EU_SANCTIONS_CSV =
-  '/Users/vegardhalkjelsvik/Dev/svalmap/data/source/eu-designated-vessels.csv';
-const LOCAL_EU_SANCTIONS_CSV_LEGACY =
-  '/Users/vegardhalkjelsvik/Dev/svalmap/data/source/Sanction list EU.CSV';
-const LOCAL_SHADOWFLEET_CSV = '/Users/vegardhalkjelsvik/Dev/svalmap/data/source/shadowfleet2.csv';
+const LOCAL_SANCTIONS_CSV = dataSource('Sanctionlist.CSV');
+const LOCAL_EU_SANCTIONS_CSV = dataSource('eu-designated-vessels.csv');
+const LOCAL_EU_SANCTIONS_CSV_LEGACY = dataSource('Sanction list EU.CSV');
+const LOCAL_SHADOWFLEET_CSV = dataSource('shadowfleet2.csv');
 const LOCAL_OPENSANCTIONS_VESSELS_CSV = OPENSANCTIONS_VESSELS_CSV;
-const LOCAL_MILITARY_MMSI = '/Users/vegardhalkjelsvik/Dev/svalmap/data/source/Norwegian-military-vessel-mmsi.txt';
+const LOCAL_MILITARY_MMSI = dataSource('Norwegian-military-vessel-mmsi.txt');
 
 function readMmsiCsv(filePath: string): Set<string> {
   const result = new Set<string>();
@@ -183,13 +224,13 @@ async function ensureImoMapLoaded(): Promise<void> {
     // Build IMO to MMSI mapping from current vessel data
     const token = await getBarentsWatchAccessToken();
     if (token) {
-      const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+      const agent = httpsAgent();
       let data: any;
       try {
-        const r1 = await axios.get('https://live.ais.barentswatch.no/v1/latest/combined?modelType=Full&modelFormat=Json', { headers: { Authorization: `Bearer ${token}` }, httpsAgent, timeout: 15000 });
+        const r1 = await axios.get('https://live.ais.barentswatch.no/v1/latest/combined?modelType=Full&modelFormat=Json', { headers: { Authorization: `Bearer ${token}` }, httpsAgent: agent, timeout: 15000 });
         data = r1.data;
       } catch {
-        const r2 = await axios.get('https://live.ais.barentswatch.no/v1/combined?modelType=Full&modelFormat=Json', { headers: { Authorization: `Bearer ${token}` }, httpsAgent, timeout: 20000 });
+        const r2 = await axios.get('https://live.ais.barentswatch.no/v1/combined?modelType=Full&modelFormat=Json', { headers: { Authorization: `Bearer ${token}` }, httpsAgent: agent, timeout: 20000 });
         data = r2.data;
       }
       
@@ -210,8 +251,8 @@ async function ensureImoMapLoaded(): Promise<void> {
 }
 
 // Local perimeter files
-const AOI_GEOJSON_PATH = '/Users/vegardhalkjelsvik/Dev/svalmap/data/source/fisheriesprotectionzone.geojson';
-const CABLES_GEOJSON_PATH = '/Users/vegardhalkjelsvik/Dev/svalmap/data/source/SvalbardCables.geojson';
+const AOI_GEOJSON_PATH = dataSource('fisheriesprotectionzone.geojson');
+const CABLES_GEOJSON_PATH = dataSource('SvalbardCables.geojson');
 let AOI_GEOJSON_STRING = '';
 let CABLES_GEOJSON_STRING = '';
 try { AOI_GEOJSON_STRING = fs.readFileSync(AOI_GEOJSON_PATH, 'utf8'); } catch { console.warn('AOI GeoJSON not found at', AOI_GEOJSON_PATH); }
@@ -348,8 +389,8 @@ function formatEta(eta: any): string | null {
 }
 
 // Local Norway EEZ and Jan Mayen AOIs
-const NORWAY_GEOJSON_PATH = '/Users/vegardhalkjelsvik/Dev/svalmap/data/source/Proximity markers/AOI/Norway.geojson';
-const JANMAYEN_GEOJSON_PATH = '/Users/vegardhalkjelsvik/Dev/svalmap/data/source/Proximity markers/AOI/Jan Mayen.geojson';
+const NORWAY_GEOJSON_PATH = dataSource('Proximity markers', 'AOI', 'Norway.geojson');
+const JANMAYEN_GEOJSON_PATH = dataSource('Proximity markers', 'AOI', 'Jan Mayen.geojson');
 let NORWAY_GEOJSON_STRING = '';
 let JANMAYEN_GEOJSON_STRING = '';
 try { NORWAY_GEOJSON_STRING = fs.readFileSync(NORWAY_GEOJSON_PATH, 'utf8'); } catch { console.warn('Norway GeoJSON not found at', NORWAY_GEOJSON_PATH); }
@@ -436,8 +477,323 @@ function sweepStaticCache(): void {
 
 app.get('/healthz', (_req, res) => res.json({ ok: true }));
 
+app.get('/api/health', (_req, res) => {
+  const ais = getAisStreamStatus();
+  const iceMeta = readIceEdgeMeta();
+  const iceAgeMs = iceMeta?.fetchedAt ? Date.now() - new Date(iceMeta.fetchedAt).getTime() : null;
+  res.json({
+    ok: true,
+    api: 'scripts-runner',
+    port: PORT,
+    aisstream: ais,
+    sanctions: {
+      mmsi: SANCTIONED_MMSI.size,
+      imo: SANCTIONED_IMO.size,
+      cacheAgeMs: SANCTIONED_CACHE_TS ? Date.now() - SANCTIONED_CACHE_TS : null,
+    },
+    shadowfleet: { mmsi: SHADOWFLEET_MMSI.size },
+    militaryMmsi: MILITARY_MMSI.size,
+    iceEdge: {
+      ready: fs.existsSync(path.join(OVERLAYS_DIR, 'ice-edge.geojson')),
+      ageMs: iceAgeMs,
+      meta: iceMeta,
+    },
+    tlsInsecure: process.env.TLS_INSECURE === '1',
+    apiKeyRequired: Boolean(API_KEY),
+    emailConfigured: emailConfigured(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+app.get('/api/alerts/status', (_req, res) => {
+  res.json({
+    emailConfigured: emailConfigured(),
+    rules: listServerAlerts().filter((r) => r.status === 'watching').length,
+  });
+});
+
+app.get('/api/alerts', (_req, res) => {
+  res.json({ rules: listServerAlerts() });
+});
+
+app.post('/api/alerts', (req, res) => {
+  try {
+    const rule = req.body;
+    if (!rule?.id) return res.status(400).json({ error: 'id required' });
+    upsertServerAlert(rule);
+    res.json({ ok: true, emailConfigured: emailConfigured() });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || String(e) });
+  }
+});
+
+app.delete('/api/alerts/:id', (req, res) => {
+  deleteServerAlert(String(req.params.id));
+  res.json({ ok: true });
+});
+
+app.post('/api/alerts/notify', async (req, res) => {
+  try {
+    const { email, message, mmsi, rule } = req.body || {};
+    const to = String(email || rule?.email || '').trim();
+    if (!to) return res.status(400).json({ error: 'email required' });
+    const text =
+      message ||
+      `SvalMap alert: vessel ${mmsi || ''} entered ${rule?.areaLabel || 'monitored area'}`;
+    const result = await sendAlertEmail({
+      to,
+      subject: `SvalMap alert: ${rule?.areaLabel || 'AOI'}`,
+      text: `${text}\n\nRule: ${rule?.id || ''}\nTime: ${new Date().toISOString()}\n`,
+    });
+    if (!result.ok) return res.status(503).json({ error: result.error });
+    if (rule?.id) {
+      const existing = listServerAlerts().find((r) => r.id === rule.id);
+      if (existing) {
+        upsertServerAlert({
+          ...existing,
+          status: 'triggered',
+          triggeredAt: new Date().toISOString(),
+          message: text,
+          notified: [...new Set([...(existing.notified || []), String(mmsi || '')].filter(Boolean))],
+        });
+      }
+    }
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || String(e) });
+  }
+});
+
+loadServerAlerts();
+
+// Kystverket navigation warnings (NAVAREA XIX + coastal).
+// Public API returns currently in-force warnings only; recent=1 marks issued within 30 days.
+const NAVWARNINGS_NAVAREA_URL =
+  'https://api.kystverket.no/data/navigationwarnings/navareaxix/';
+const NAVWARNINGS_COASTAL_URL =
+  'https://api.kystverket.no/data/navigationwarnings/coastal/';
+const NAVWARNINGS_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
+let navWarningsCache: { ts: number; data: any } | null = null;
+
+/** Parse simple WKT POINT / MULTIPOINT / POLYGON (lon lat pairs) to GeoJSON geometry. */
+function parseWktGeometry(wkt: string | null | undefined): any | null {
+  if (!wkt || typeof wkt !== 'string') return null;
+  const s = wkt.trim();
+  const point = /^POINT\s*\(\s*([+-]?\d+(?:\.\d+)?)\s+([+-]?\d+(?:\.\d+)?)\s*\)$/i.exec(s);
+  if (point) {
+    return { type: 'Point', coordinates: [Number(point[1]), Number(point[2])] };
+  }
+  const multipoint = /^MULTIPOINT\s*\(\s*(.+)\s*\)$/i.exec(s);
+  if (multipoint) {
+    const coords: number[][] = [];
+    const re = /\(\s*([+-]?\d+(?:\.\d+)?)\s+([+-]?\d+(?:\.\d+)?)\s*\)/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(multipoint[1]))) {
+      coords.push([Number(m[1]), Number(m[2])]);
+    }
+    if (!coords.length) return null;
+    if (coords.length === 1) return { type: 'Point', coordinates: coords[0] };
+    return { type: 'MultiPoint', coordinates: coords };
+  }
+  const polygon = /^POLYGON\s*\(\s*\((.+)\)\s*\)$/i.exec(s);
+  if (polygon) {
+    const ring = polygon[1].split(',').map((pair) => {
+      const [lon, lat] = pair.trim().split(/\s+/).map(Number);
+      return [lon, lat];
+    });
+    if (ring.length < 3 || ring.some((c) => !Number.isFinite(c[0]) || !Number.isFinite(c[1]))) {
+      return null;
+    }
+    const a = ring[0];
+    const b = ring[ring.length - 1];
+    if (a[0] !== b[0] || a[1] !== b[1]) ring.push([...a]);
+    return { type: 'Polygon', coordinates: [ring] };
+  }
+  return null;
+}
+
+function warningToFeature(w: any, kind: 'navarea' | 'coastal') {
+  const geometry = parseWktGeometry(w?.position);
+  if (!geometry) return null;
+  const issued = w.dtg_timestamp || w.updated_at || null;
+  const recent = withinLastDays(issued, NAVWARNINGS_LOOKBACK_MS) ? 1 : 0;
+  return {
+    type: 'Feature',
+    geometry,
+    properties: {
+      kind,
+      eventid: w.eventid,
+      status: w.status || 'active',
+      warningnumber: w.warningnumber || null,
+      title:
+        kind === 'navarea'
+          ? `NAVAREA XIX ${w.warningnumber || ''}`.trim()
+          : `Coastal ${w.warningnumber || w.location || ''}`.trim(),
+      message: w.message_en || w.message_no || null,
+      location: w.location || null,
+      issued,
+      updated_at: w.updated_at || null,
+      recent,
+    },
+  };
+}
+
+function withinLastDays(iso: string | null | undefined, daysMs: number): boolean {
+  if (!iso) return true; // keep if unknown date
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return true;
+  return Date.now() - t <= daysMs;
+}
+
+async function fetchNavWarningsGeoJSON(): Promise<{
+  type: 'FeatureCollection';
+  features: any[];
+  meta: any;
+}> {
+  const [navareaRes, coastalRes] = await Promise.all([
+    axios.get(NAVWARNINGS_NAVAREA_URL, { timeout: 20000, httpsAgent: httpsAgent() }),
+    axios.get(NAVWARNINGS_COASTAL_URL, { timeout: 20000, httpsAgent: httpsAgent() }),
+  ]);
+  const navarea = Array.isArray(navareaRes.data) ? navareaRes.data : [];
+  const coastal = Array.isArray(coastalRes.data) ? coastalRes.data : [];
+  const features: any[] = [];
+  for (const w of navarea) {
+    // Public API only returns currently active warnings (no cancelled archive).
+    const f = warningToFeature(w, 'navarea');
+    if (f) features.push(f);
+  }
+  for (const w of coastal) {
+    const f = warningToFeature(w, 'coastal');
+    if (f) features.push(f);
+  }
+  const recentCount = features.filter((f) => f.properties?.recent === 1).length;
+  return {
+    type: 'FeatureCollection',
+    features,
+    meta: {
+      source: 'Kystverket Data API',
+      note:
+        'Public API exposes currently active NAVAREA XIX + coastal warnings only (no cancelled archive). Use scope=active for all in-force, scope=recent for issued within 30 days.',
+      lookbackDays: 30,
+      navareaActive: navarea.length,
+      coastalActive: coastal.length,
+      withGeometry: features.length,
+      recentIssuedCount: recentCount,
+    },
+  };
+}
+
+app.get('/api/navwarnings', async (req, res) => {
+  try {
+    const scope = String(req.query.scope || 'all').toLowerCase();
+    const now = Date.now();
+    if (!navWarningsCache || now - navWarningsCache.ts > 15 * 60 * 1000) {
+      const data = await fetchNavWarningsGeoJSON();
+      navWarningsCache = { ts: now, data };
+    }
+    let data = navWarningsCache.data;
+    if (scope === 'recent' || scope === '30d') {
+      data = {
+        ...data,
+        features: (data.features || []).filter((f: any) => f?.properties?.recent === 1),
+      };
+    }
+    // scope=active|all → full in-force set
+    res.json({
+      success: true,
+      data,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || String(err) });
+  }
+});
+
 // Static GeoJSON overlays for MapLibre (EEZ, cables, NSM, etc.)
-const OVERLAYS_DIR = '/Users/vegardhalkjelsvik/Dev/svalmap/data/source/overlays';
+const OVERLAYS_DIR = dataSource('overlays');
+
+/** SAR detections are limited to Norway EEZ + Jan Mayen EEZ + Svalbard FPZ. */
+const SAR_ZONE_OVERLAY_FILES = [
+  'norway-eez.geojson',
+  'janmayen-eez.geojson',
+  'svalbard-fpz.geojson',
+] as const;
+const SAR_LOOKBACK_HOURS = 24 * 30; // last 30 days (GFW SAR also lags ~5d)
+
+type SarZone = { feature: any; bbox: [number, number, number, number] };
+let SAR_ZONES: SarZone[] = [];
+/** Simplified MultiPolygon for GFW 4wings report requests. */
+let SAR_ZONES_GFW_GEOMETRY: { type: 'MultiPolygon'; coordinates: number[][][][] } | null = null;
+
+function loadSarZones() {
+  const zones: SarZone[] = [];
+  const multiCoords: number[][][][] = [];
+  for (const file of SAR_ZONE_OVERLAY_FILES) {
+    try {
+      const full = path.join(OVERLAYS_DIR, file);
+      if (!fs.existsSync(full)) {
+        console.warn('[gfw/sar] zone file missing', file);
+        continue;
+      }
+      const gj = JSON.parse(fs.readFileSync(full, 'utf8'));
+      const features: any[] =
+        gj?.type === 'FeatureCollection'
+          ? gj.features || []
+          : gj?.type === 'Feature'
+            ? [gj]
+            : gj?.type === 'Polygon' || gj?.type === 'MultiPolygon'
+              ? [{ type: 'Feature', properties: {}, geometry: gj }]
+              : [];
+      for (const f of features) {
+        if (!f?.geometry) continue;
+        const bbox = turf.bbox(f) as [number, number, number, number];
+        zones.push({ feature: f, bbox });
+        try {
+          const simp = turf.simplify(f, { tolerance: 0.04, highQuality: false, mutate: false });
+          const g = simp.geometry;
+          if (g?.type === 'Polygon') multiCoords.push(g.coordinates);
+          else if (g?.type === 'MultiPolygon') multiCoords.push(...g.coordinates);
+        } catch {
+          const g = f.geometry;
+          if (g?.type === 'Polygon') multiCoords.push(g.coordinates);
+          else if (g?.type === 'MultiPolygon') multiCoords.push(...g.coordinates);
+        }
+      }
+    } catch (e: any) {
+      console.warn('[gfw/sar] zone load failed', file, e?.message || e);
+    }
+  }
+  SAR_ZONES = zones;
+  SAR_ZONES_GFW_GEOMETRY = multiCoords.length
+    ? { type: 'MultiPolygon', coordinates: multiCoords }
+    : null;
+  console.log(
+    `[gfw/sar] zones=${zones.length} gfwGeom=${SAR_ZONES_GFW_GEOMETRY ? 'MultiPolygon' : 'bbox-fallback'}`
+  );
+}
+loadSarZones();
+
+function pointInSarZones(lon: number, lat: number): boolean {
+  if (!SAR_ZONES.length) return pointInGfwMonitorBbox(lon, lat);
+  const pt = turf.point([lon, lat]);
+  for (const z of SAR_ZONES) {
+    const [minX, minY, maxX, maxY] = z.bbox;
+    if (lon < minX || lon > maxX || lat < minY || lat > maxY) continue;
+    try {
+      if (turf.booleanPointInPolygon(pt, z.feature)) return true;
+    } catch {
+      /* ignore bad ring */
+    }
+  }
+  return false;
+}
+
+function sarZonesRequestGeometry():
+  | { type: 'MultiPolygon'; coordinates: number[][][][] }
+  | { type: 'Polygon'; coordinates: number[][][] } {
+  return SAR_ZONES_GFW_GEOMETRY || gfwMonitorGeometry();
+}
+
 app.use('/overlays', express.static(OVERLAYS_DIR));
 app.get('/api/overlays', (_req, res) => {
   try {
@@ -453,6 +809,69 @@ app.get('/api/overlays', (_req, res) => {
   } catch (e: any) {
     res.status(500).json({ error: e?.message || String(e) });
   }
+});
+
+const ICE_EDGE_META = path.join(OVERLAYS_DIR, 'ice-edge.meta.json');
+const ICE_EDGE_SCRIPT = path.join(__dirname, 'fetch_ice_edge.py');
+const ICE_EDGE_PYTHON = path.join(__dirname, '.venv-cmems', 'bin', 'python');
+
+function readIceEdgeMeta(): any | null {
+  try {
+    if (!fs.existsSync(ICE_EDGE_META)) return null;
+    return JSON.parse(fs.readFileSync(ICE_EDGE_META, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+app.get('/api/ice-edge/status', (_req, res) => {
+  const meta = readIceEdgeMeta();
+  const geo = path.join(OVERLAYS_DIR, 'ice-edge.geojson');
+  res.json({
+    ready: fs.existsSync(geo),
+    meta,
+    url: '/overlays/ice-edge.geojson',
+  });
+});
+
+let iceEdgeRefreshing = false;
+function refreshIceEdge(reason: string): Promise<{ ok: boolean; error?: string; meta?: any }> {
+  if (iceEdgeRefreshing) return Promise.resolve({ ok: false, error: 'already running' });
+  if (!fs.existsSync(ICE_EDGE_PYTHON)) {
+    return Promise.resolve({
+      ok: false,
+      error: 'Python venv missing (.venv-cmems). Run: python3 -m venv .venv-cmems && pip install copernicusmarine matplotlib numpy xarray python-dotenv',
+    });
+  }
+  iceEdgeRefreshing = true;
+  console.log(`[ice-edge] refresh (${reason})…`);
+  return new Promise((resolve) => {
+    const child = spawn(ICE_EDGE_PYTHON, [ICE_EDGE_SCRIPT], {
+      cwd: __dirname,
+      env: process.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stderr = '';
+    child.stdout?.on('data', (b: Buffer) => process.stdout.write(b));
+    child.stderr?.on('data', (b: Buffer) => {
+      stderr += b.toString();
+      process.stderr.write(b);
+    });
+    child.on('close', (code) => {
+      iceEdgeRefreshing = false;
+      if (code === 0) {
+        resolve({ ok: true, meta: readIceEdgeMeta() });
+      } else {
+        resolve({ ok: false, error: stderr.slice(-500) || `exit ${code}` });
+      }
+    });
+  });
+}
+
+app.post('/api/ice-edge/refresh', async (_req, res) => {
+  const result = await refreshIceEdge('api');
+  if (result.ok) res.json(result);
+  else res.status(500).json(result);
 });
 
 app.get('/api/assets', async (_req, res) => {
@@ -507,147 +926,609 @@ app.get('/api/positions', async (req, res) => {
 
 // Global Fishing Watch — real proxy is registered below (/api/gfw/events, /api/gfw/detections)
 
-// Proxy BarentsWatch Live AIS and filter to AOI locally
-app.get('/api/live-positions', async (req, res) => {
+function pointInGeom(lon: number, lat: number, geom: any): boolean {
+  if (!geom) return false;
   try {
-    await ensureSanctionedLoaded();
-    await ensureShadowLoaded();
-    await ensureMilitaryLoaded();
-    await ensureImoMapLoaded();
-    const token = await getBarentsWatchAccessToken();
-    if (!token) return res.status(400).json({ error: 'BarentsWatch credentials not configured' });
-    const httpsAgent = new https.Agent({ rejectUnauthorized: false });
-    // Try latest endpoint (Full model) first, then fallback to combined (Full model)
-    let data: any;
-    try {
-      const r1 = await axios.get('https://live.ais.barentswatch.no/v1/latest/combined?modelType=Full&modelFormat=Json', { headers: { Authorization: `Bearer ${token}` }, httpsAgent, timeout: 15000 });
-      data = r1.data;
-    } catch {
-      const r2 = await axios.get('https://live.ais.barentswatch.no/v1/combined?modelType=Full&modelFormat=Json', { headers: { Authorization: `Bearer ${token}` }, httpsAgent, timeout: 20000 });
-      data = r2.data;
-    }
-    const features: any[] = [];
-    const aoiFeature = AOI_TURF_GEOMETRY ? { type: 'Feature', properties: {}, geometry: AOI_TURF_GEOMETRY } : null;
-    const norwayFeature = NORWAY_TURF_GEOMETRY ? { type: 'Feature', properties: {}, geometry: NORWAY_TURF_GEOMETRY } : null;
-    const janFeature = JANMAYEN_TURF_GEOMETRY ? { type: 'Feature', properties: {}, geometry: JANMAYEN_TURF_GEOMETRY } : null;
-    const list: any[] = Array.isArray(data) ? data : (data?.vessels || data?.positions || []);
-    for (const v of list) {
-      const lon = v?.lon ?? v?.Lon ?? v?.longitude ?? v?.Longitude ?? v?.position?.longitude ?? v?.position?.lon ?? v?.coordinates?.longitude;
-      const lat = v?.lat ?? v?.Lat ?? v?.latitude ?? v?.Latitude ?? v?.position?.latitude ?? v?.position?.lat ?? v?.coordinates?.latitude;
-      if (typeof lon !== 'number' || typeof lat !== 'number') continue;
-      const pt = turf.point([lon, lat]);
-      let include = false;
-      // Always include vessels inside Svalbard FPZ
-      if (aoiFeature) {
-        try { if (turf.booleanPointInPolygon(pt, aoiFeature as any)) include = true; } catch {}
-      }
-      // Include only Russian vessels, shadow fleet, sanctioned, and military vessels inside Norway EEZ or Jan Mayen
-      if (!include) {
-        const mmsiStrTmp = String(v?.mmsi ?? v?.MMSI ?? '');
-        const isRussian = parseInt(mmsiStrTmp.slice(0,3)) === 273;
-        const isSanctioned = SANCTIONED_MMSI.has(mmsiStrTmp);
-        const isShadow = SHADOWFLEET_MMSI.has(mmsiStrTmp) || SHADOW_TEST_SET.has(mmsiStrTmp);
-        const isMilitary = v?.shipType === 35 || v?.shipTypeDesc === 'Military ops' || v?.properties?.shipType === 35 || v?.shipType === 55 || v?.shipTypeDesc === 'Law enforcement' || v?.properties?.shipType === 55;
-        const eligible = isRussian || isSanctioned || isShadow || isMilitary;
-        if (eligible) {
-          try {
-            if (norwayFeature && turf.booleanPointInPolygon(pt, norwayFeature as any)) include = true;
-            else if (janFeature && turf.booleanPointInPolygon(pt, janFeature as any)) include = true;
-          } catch {}
-        }
-      }
-      if (!include) continue;
-        const mmsiStr = String(v?.mmsi ?? v?.MMSI ?? '');
-        // These fields come from Full model; support various casings
-        const destinationRaw = v?.destination ?? v?.Destination ?? (v?.properties && v?.properties.destination) ?? null;
-        const etaRaw = v?.eta ?? v?.ETA ?? (v?.properties && v?.properties.eta) ?? null;
-        const imoRaw = v?.imoNumber ?? v?.imo ?? v?.IMO ?? (v?.properties && v?.properties.imoNumber) ?? null;
-        const nameRaw = v?.shipName ?? v?.name ?? v?.ShipName ?? (v?.properties && v?.properties.name) ?? null;
-        const shipTypeRaw = v?.shipTypeDesc ?? v?.shipType ?? (v?.properties && v?.properties.shipType) ?? null;
-        
-        // Check EU sanctions by IMO number (direct IMO set + legacy map)
-        const imoStr = imoRaw != null && imoRaw !== '' ? String(imoRaw) : '';
-        const isEuSanctioned =
-          (!!imoStr && SANCTIONED_IMO.has(imoStr)) ||
-          (!!imoStr && IMO_TO_MMSI_MAP.has(imoStr) && SANCTIONED_MMSI.has(IMO_TO_MMSI_MAP.get(imoStr)!));
-        const isShadow =
-          SHADOWFLEET_MMSI.has(mmsiStr) ||
-          SHADOW_TEST_SET.has(mmsiStr) ||
-          (!!imoStr && SHADOWFLEET_IMO.has(imoStr));
+    return turf.booleanPointInPolygon(turf.point([lon, lat]), {
+      type: 'Feature',
+      properties: {},
+      geometry: geom,
+    } as any);
+  } catch {
+    return false;
+  }
+}
 
-        const normalized = {
-          mmsi: String(v?.mmsi ?? v?.MMSI ?? ''),
-          timestamp: v?.msgtime ?? v?.msgTime ?? v?.time ?? v?.Timestamp ?? null,
-          lon,
-          lat,
-          speed: v?.speedOverGround ?? v?.sog ?? v?.SpeedOverGround ?? null,
-          course: v?.courseOverGround ?? v?.cog ?? v?.CourseOverGround ?? null,
-          heading: v?.trueHeading ?? v?.heading ?? v?.TrueHeading ?? null,
-          status: v?.navigationalStatus ?? v?.navstat ?? v?.NavigationalStatus ?? null,
-          vessel_name: nameRaw ?? null,
-          destination: typeof destinationRaw === 'string' ? destinationRaw : null,
-          imo: imoStr || null,
-          shipType: typeof shipTypeRaw === 'string' ? shipTypeRaw : getShipTypeDescriptionFromCode(shipTypeRaw),
-          sanctioned: SANCTIONED_MMSI.has(mmsiStr) || isEuSanctioned,
-          shadowfleet: isShadow,
-          military: shipTypeRaw === 35 || shipTypeRaw === 'Military ops' || shipTypeRaw === 55 || shipTypeRaw === 'Law enforcement',
-          eta: formatEta(etaRaw)
-        };
-      // Update static cache with any static/voyage fields present
-      upsertStaticInfo(mmsiStr, { destination: normalized.destination, eta: normalized.eta, imo: normalized.imo, shipType: normalized.shipType, vessel_name: normalized.vessel_name });
-      // Fill from cache if latest frame lacks some fields
-      const enriched = populateFromStaticCache(mmsiStr, normalized);
-      features.push(enriched);
+function inNorthAtlanticBox(lon: number, lat: number): boolean {
+  return (
+    lat >= NORTH_ATLANTIC_BBOX.minLat &&
+    lat <= NORTH_ATLANTIC_BBOX.maxLat &&
+    lon >= NORTH_ATLANTIC_BBOX.minLon &&
+    lon <= NORTH_ATLANTIC_BBOX.maxLon
+  );
+}
+
+function isMilitaryShipType(shipType: any): boolean {
+  const n = Number(shipType);
+  if (n === 35 || n === 55) return true;
+  const s = String(shipType || '').toLowerCase();
+  return s.includes('military') || s.includes('law enforcement');
+}
+
+function isFishingShipType(shipType: any): boolean {
+  const n = Number(shipType);
+  if (n === 30) return true;
+  return String(shipType || '').toLowerCase().includes('fishing');
+}
+
+function isRecreationalShipType(shipType: any): boolean {
+  const n = Number(shipType);
+  if (n === 36 || n === 37) return true;
+  const s = String(shipType || '').toLowerCase();
+  return s.includes('pleasure') || s.includes('sailing') || s.includes('recreational');
+}
+
+/**
+ * Same display rules as before, expanded geographically:
+ * - Svalbard FPZ: all vessels (drop fishing <15 m / recreational <45 m when length known)
+ * - Rest of North Atlantic north of 54°N (incl. Norway + Jan Mayen EEZs):
+ *   Russian / research / shadow / sanctioned / military only
+ */
+function shouldIncludeVessel(opts: {
+  lon: number;
+  lat: number;
+  mmsi: string;
+  imo: string | null;
+  shipType: any;
+  lengthM: number | null;
+}): { include: boolean; inSvalbard: boolean } {
+  const { lon, lat, mmsi, imo, shipType, lengthM } = opts;
+  const inSvalbard = pointInGeom(lon, lat, AOI_TURF_GEOMETRY);
+  if (inSvalbard) {
+    if (lengthM != null) {
+      if (isFishingShipType(shipType) && lengthM < 15) return { include: false, inSvalbard };
+      if (isRecreationalShipType(shipType) && lengthM < 45) return { include: false, inSvalbard };
     }
-    sweepStaticCache();
-    res.json(features);
+    return { include: true, inSvalbard };
+  }
+
+  if (!inNorthAtlanticBox(lon, lat)) return { include: false, inSvalbard: false };
+
+  const isRussian = parseInt(mmsi.slice(0, 3), 10) === 273;
+  const isResearch = isRussianResearchVessel(mmsi, imo);
+  const isSanctioned =
+    SANCTIONED_MMSI.has(mmsi) ||
+    (!!imo && SANCTIONED_IMO.has(imo)) ||
+    (!!imo && IMO_TO_MMSI_MAP.has(imo) && SANCTIONED_MMSI.has(IMO_TO_MMSI_MAP.get(imo)!));
+  const isShadow =
+    SHADOWFLEET_MMSI.has(mmsi) ||
+    SHADOW_TEST_SET.has(mmsi) ||
+    (!!imo && SHADOWFLEET_IMO.has(imo));
+  const isMilitary = isMilitaryShipType(shipType) || MILITARY_MMSI.has(mmsi);
+  return {
+    include: isRussian || isResearch || isSanctioned || isShadow || isMilitary,
+    inSvalbard: false,
+  };
+}
+
+function normalizeLiveVessel(input: {
+  mmsi: string;
+  lon: number;
+  lat: number;
+  speed?: any;
+  course?: any;
+  heading?: any;
+  status?: any;
+  vessel_name?: any;
+  destination?: any;
+  imo?: any;
+  shipType?: any;
+  shipTypeCode?: any;
+  eta?: any;
+  timestamp?: any;
+  lengthM?: number | null;
+  source?: string;
+}): any | null {
+  const mmsiStr = String(input.mmsi || '').replace(/\D/g, '').padStart(9, '0').slice(-9);
+  if (!mmsiStr || mmsiStr === '000000000') return null;
+  const lon = Number(input.lon);
+  const lat = Number(input.lat);
+  if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
+
+  const imoRaw = input.imo != null && input.imo !== '' ? String(input.imo) : '';
+  const imoStr = imoRaw && imoRaw !== '0' ? imoRaw : '';
+  const shipTypeRaw = input.shipType ?? input.shipTypeCode ?? null;
+  const shipType =
+    typeof shipTypeRaw === 'string'
+      ? shipTypeRaw
+      : getShipTypeDescriptionFromCode(shipTypeRaw);
+
+  const decision = shouldIncludeVessel({
+    lon,
+    lat,
+    mmsi: mmsiStr,
+    imo: imoStr || null,
+    shipType: shipTypeRaw ?? shipType,
+    lengthM: input.lengthM ?? null,
+  });
+  if (!decision.include) return null;
+
+  const isEuSanctioned =
+    (!!imoStr && SANCTIONED_IMO.has(imoStr)) ||
+    (!!imoStr && IMO_TO_MMSI_MAP.has(imoStr) && SANCTIONED_MMSI.has(IMO_TO_MMSI_MAP.get(imoStr)!));
+  const isShadow =
+    SHADOWFLEET_MMSI.has(mmsiStr) ||
+    SHADOW_TEST_SET.has(mmsiStr) ||
+    (!!imoStr && SHADOWFLEET_IMO.has(imoStr));
+
+  const normalized = {
+    mmsi: mmsiStr,
+    timestamp: input.timestamp ?? null,
+    lon,
+    lat,
+    speed: input.speed ?? null,
+    course: input.course ?? null,
+    heading: input.heading ?? null,
+    status: input.status ?? null,
+    vessel_name:
+      input.vessel_name ||
+      RESEARCH_NAME_BY_MMSI.get(mmsiStr) ||
+      null,
+    destination: typeof input.destination === 'string' ? input.destination : null,
+    imo: imoStr || null,
+    shipType,
+    sanctioned: SANCTIONED_MMSI.has(mmsiStr) || isEuSanctioned,
+    shadowfleet: isShadow,
+    military: isMilitaryShipType(shipTypeRaw ?? shipType) || MILITARY_MMSI.has(mmsiStr),
+    research: isRussianResearchVessel(mmsiStr, imoStr || null),
+    eta: formatEta(input.eta),
+    source: input.source || 'unknown',
+  };
+  upsertStaticInfo(mmsiStr, {
+    destination: normalized.destination,
+    eta: normalized.eta,
+    imo: normalized.imo,
+    shipType: normalized.shipType,
+    vessel_name: normalized.vessel_name,
+  });
+  return populateFromStaticCache(mmsiStr, normalized);
+}
+
+async function fetchBarentsWatchLatest(): Promise<any[]> {
+  const token = await getBarentsWatchAccessToken();
+  if (!token) return [];
+  const agent = httpsAgent();
+  try {
+    const r1 = await axios.get(
+      'https://live.ais.barentswatch.no/v1/latest/combined?modelType=Full&modelFormat=Json',
+      { headers: { Authorization: `Bearer ${token}` }, httpsAgent: agent, timeout: 15000 }
+    );
+    const data = r1.data;
+    return Array.isArray(data) ? data : data?.vessels || data?.positions || [];
+  } catch {
+    try {
+      const r2 = await axios.get(
+        'https://live.ais.barentswatch.no/v1/combined?modelType=Full&modelFormat=Json',
+        { headers: { Authorization: `Bearer ${token}` }, httpsAgent: agent, timeout: 20000 }
+      );
+      const data = r2.data;
+      return Array.isArray(data) ? data : data?.vessels || data?.positions || [];
+    } catch {
+      return [];
+    }
+  }
+}
+
+/** Live AIS merge used by UI, search, incidents, and alert watcher. */
+async function getLivePositionsList(): Promise<any[]> {
+  await ensureSanctionedLoaded();
+  await ensureShadowLoaded();
+  await ensureMilitaryLoaded();
+  await ensureImoMapLoaded();
+
+  const byMmsi = new Map<string, any>();
+
+  for (const v of getAisStreamVessels()) {
+    const normalized = normalizeLiveVessel({
+      mmsi: v.mmsi,
+      lon: v.lon,
+      lat: v.lat,
+      speed: v.speed,
+      course: v.course,
+      heading: v.heading,
+      status: v.status,
+      vessel_name: v.vessel_name,
+      destination: v.destination,
+      imo: v.imo,
+      shipType: v.shipType,
+      shipTypeCode: v.shipTypeCode,
+      eta: v.eta,
+      timestamp: v.updatedAt ? new Date(v.updatedAt).toISOString() : null,
+      lengthM: vesselLengthMeters(v),
+      source: 'aisstream',
+    });
+    if (normalized) byMmsi.set(normalized.mmsi, normalized);
+  }
+
+  const bwList = await fetchBarentsWatchLatest();
+  for (const v of bwList) {
+    const lon =
+      v?.lon ??
+      v?.Lon ??
+      v?.longitude ??
+      v?.Longitude ??
+      v?.position?.longitude ??
+      v?.position?.lon ??
+      v?.coordinates?.longitude;
+    const lat =
+      v?.lat ??
+      v?.Lat ??
+      v?.latitude ??
+      v?.Latitude ??
+      v?.position?.latitude ??
+      v?.position?.lat ??
+      v?.coordinates?.latitude;
+    if (typeof lon !== 'number' || typeof lat !== 'number') continue;
+    const destinationRaw =
+      v?.destination ?? v?.Destination ?? v?.properties?.destination ?? null;
+    const etaRaw = v?.eta ?? v?.ETA ?? v?.properties?.eta ?? null;
+    const imoRaw =
+      v?.imoNumber ?? v?.imo ?? v?.IMO ?? v?.properties?.imoNumber ?? null;
+    const nameRaw =
+      v?.shipName ?? v?.name ?? v?.ShipName ?? v?.properties?.name ?? null;
+    const shipTypeRaw =
+      v?.shipTypeDesc ?? v?.shipType ?? v?.properties?.shipType ?? null;
+    const normalized = normalizeLiveVessel({
+      mmsi: String(v?.mmsi ?? v?.MMSI ?? ''),
+      lon,
+      lat,
+      speed: v?.speedOverGround ?? v?.sog ?? v?.SpeedOverGround ?? null,
+      course: v?.courseOverGround ?? v?.cog ?? v?.CourseOverGround ?? null,
+      heading: v?.trueHeading ?? v?.heading ?? v?.TrueHeading ?? null,
+      status: v?.navigationalStatus ?? v?.navstat ?? v?.NavigationalStatus ?? null,
+      vessel_name: nameRaw,
+      destination: destinationRaw,
+      imo: imoRaw,
+      shipType: shipTypeRaw,
+      eta: etaRaw,
+      timestamp: v?.msgtime ?? v?.msgTime ?? v?.time ?? v?.Timestamp ?? null,
+      source: 'barentswatch',
+    });
+    if (!normalized) continue;
+    const existing = byMmsi.get(normalized.mmsi);
+    if (!existing) {
+      byMmsi.set(normalized.mmsi, normalized);
+      continue;
+    }
+    byMmsi.set(normalized.mmsi, {
+      ...normalized,
+      ...existing,
+      vessel_name: existing.vessel_name || normalized.vessel_name,
+      destination: existing.destination || normalized.destination,
+      imo: existing.imo || normalized.imo,
+      shipType:
+        existing.shipType && existing.shipType !== 'Unknown'
+          ? existing.shipType
+          : normalized.shipType,
+      eta: existing.eta || normalized.eta,
+      source: existing.source === 'aisstream' ? 'aisstream+bw' : existing.source,
+    });
+  }
+
+  sweepStaticCache();
+  return Array.from(byMmsi.values());
+}
+
+app.get('/api/live-positions', async (_req, res) => {
+  try {
+    res.json(await getLivePositionsList());
   } catch (e: any) {
     res.status(500).json({ error: e?.message || String(e) });
   }
 });
 
-// Historic: last 24h track for a vessel (downsampled by interval minutes)
+app.get('/api/vessels/search', async (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim().toLowerCase();
+    if (q.length < 2) return res.json({ results: [] });
+    const list = await getLivePositionsList();
+    const digits = q.replace(/\D/g, '');
+    const results = list
+      .filter((v) => {
+        const name = String(v.vessel_name || '').toLowerCase();
+        const mmsi = String(v.mmsi || '');
+        const imo = String(v.imo || '');
+        if (digits.length >= 3 && (mmsi.includes(digits) || imo.includes(digits))) return true;
+        return name.includes(q);
+      })
+      .slice(0, 25)
+      .map((v) => ({
+        mmsi: v.mmsi,
+        vessel_name: v.vessel_name,
+        imo: v.imo,
+        lon: v.lon,
+        lat: v.lat,
+        sanctioned: !!v.sanctioned,
+        shadowfleet: !!v.shadowfleet,
+        military: !!v.military,
+        research: !!v.research,
+        shipType: v.shipType,
+      }));
+    res.json({ results, totalLive: list.length });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || String(e) });
+  }
+});
+
+app.get('/api/sanctions/lookup', async (req, res) => {
+  try {
+    await ensureSanctionedLoaded();
+    await ensureShadowLoaded();
+    const mmsi = String(req.query.mmsi || '')
+      .replace(/\D/g, '')
+      .padStart(9, '0')
+      .slice(-9);
+    const imo = String(req.query.imo || '').replace(/\D/g, '');
+    let meta: any = {};
+    try {
+      meta = JSON.parse(fs.readFileSync(EU_DESIGNATED_META, 'utf8'));
+    } catch {
+      /* empty */
+    }
+    const sanctionedMmsi = mmsi.length === 9 && SANCTIONED_MMSI.has(mmsi);
+    const sanctionedImo = imo.length >= 7 && SANCTIONED_IMO.has(imo);
+    const shadowMmsi = mmsi.length === 9 && (SHADOWFLEET_MMSI.has(mmsi) || SHADOW_TEST_SET.has(mmsi));
+    const shadowImo = imo.length >= 7 && SHADOWFLEET_IMO.has(imo);
+    const mappedMmsi = imo && IMO_TO_MMSI_MAP.get(imo);
+    res.json({
+      mmsi: mmsi || null,
+      imo: imo || null,
+      sanctioned: sanctionedMmsi || sanctionedImo,
+      shadowfleet: shadowMmsi || shadowImo,
+      matches: {
+        sanctionedMmsi,
+        sanctionedImo,
+        shadowMmsi,
+        shadowImo,
+        imoMappedMmsi: mappedMmsi || null,
+      },
+      sources: [
+        sanctionedImo || sanctionedMmsi
+          ? 'Local EU designated / OpenSanctions vessel lists (CSV cache)'
+          : null,
+        shadowMmsi || shadowImo ? 'Local shadow-fleet CSV' : null,
+      ].filter(Boolean),
+      listMeta: {
+        euImoCount: readEuDesignatedCsv().size,
+        sanctionedMmsiCache: SANCTIONED_MMSI.size,
+        sanctionedImoCache: SANCTIONED_IMO.size,
+        shadowMmsiCache: SHADOWFLEET_MMSI.size,
+        meta,
+      },
+      opensanctionsUrl: imo
+        ? `https://www.opensanctions.org/search/?q=${encodeURIComponent(imo)}`
+        : mmsi
+          ? `https://www.opensanctions.org/search/?q=${encodeURIComponent(mmsi)}`
+          : 'https://www.opensanctions.org/',
+      disclaimer:
+        'Boolean match against free local lists only — not a legal determination. Cross-check primary listings before publication.',
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || String(e) });
+  }
+});
+
+/** Free live heuristics: proximity & slow loiter among vessels of interest. */
+app.get('/api/incidents/live', async (req, res) => {
+  try {
+    const proxNm = Math.max(0.2, Math.min(10, parseFloat(String(req.query.nm || '1')) || 1));
+    const loiterKn = Math.max(0.1, Math.min(3, parseFloat(String(req.query.loiter || '0.8')) || 0.8));
+    const list = await getLivePositionsList();
+    const ofInterest = (v: any) =>
+      !!(v.sanctioned || v.shadowfleet || v.research || String(v.mmsi).startsWith('273'));
+    // Proximity: at least one vessel must be RU / research / sanctioned / shadow (skip pure military pairs)
+    const interest = list.filter((v) => ofInterest(v) || v.military);
+    const incidents: any[] = [];
+
+    for (let i = 0; i < interest.length; i++) {
+      for (let j = i + 1; j < interest.length; j++) {
+        const a = interest[i];
+        const b = interest[j];
+        if (!ofInterest(a) && !ofInterest(b)) continue;
+        const from = turf.point([a.lon, a.lat]);
+        const to = turf.point([b.lon, b.lat]);
+        const km = turf.distance(from, to, { units: 'kilometers' });
+        const nm = km / 1.852;
+        if (nm <= proxNm) {
+          incidents.push({
+            id: `prox-${a.mmsi}-${b.mmsi}`,
+            type: 'proximity',
+            title: 'Close approach',
+            message: `${a.vessel_name || a.mmsi} ↔ ${b.vessel_name || b.mmsi} · ${nm.toFixed(2)} nm`,
+            mmsi: [a.mmsi, b.mmsi],
+            lon: (a.lon + b.lon) / 2,
+            lat: (a.lat + b.lat) / 2,
+            distanceNm: Math.round(nm * 100) / 100,
+          });
+        }
+      }
+    }
+
+    for (const v of interest) {
+      if (!ofInterest(v) && !v.military) continue;
+      const spd = Number(v.speed);
+      if (!Number.isFinite(spd) || spd > loiterKn) continue;
+      incidents.push({
+        id: `loiter-${v.mmsi}`,
+        type: 'loiter',
+        title: 'Slow / loitering',
+        message: `${v.vessel_name || v.mmsi} · ${spd.toFixed(1)} kn`,
+        mmsi: [v.mmsi],
+        lon: v.lon,
+        lat: v.lat,
+        speed: spd,
+      });
+    }
+
+    incidents.sort((a, b) => (a.distanceNm ?? 99) - (b.distanceNm ?? 99));
+    res.json({
+      incidents: incidents.slice(0, 40),
+      meta: {
+        interestCount: interest.length,
+        liveCount: list.length,
+        proxNm,
+        loiterKn,
+        note: 'Heuristic only — not GFW or BQ detector output.',
+      },
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || String(e) });
+  }
+});
+
+app.get('/api/aisstream/status', (_req, res) => {
+  res.json(getAisStreamStatus());
+});
+
+// Historic AIS track (BarentsWatch free open data, max 14 days)
+// Docs: https://historic.ais.barentswatch.no
+async function fetchHistoricTrack(mmsi: string, days: number, intervalMin: number) {
+  const token = await getBarentsWatchAccessToken();
+  if (!token) throw Object.assign(new Error('BarentsWatch credentials not configured'), { status: 400 });
+  const agent = httpsAgent();
+  const clampedDays = Math.max(1, Math.min(14, days));
+  let list: any[] = [];
+  let endpoint = 'trackslast24hours';
+
+  if (clampedDays <= 1) {
+    const url = `https://historic.ais.barentswatch.no/v1/historic/trackslast24hours/${encodeURIComponent(mmsi)}`;
+    const r = await axios.get(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      httpsAgent: agent,
+      timeout: 45000,
+      validateStatus: (s) => s >= 200 && s < 500,
+    });
+    if (r.status >= 400) {
+      const err: any = new Error(r.data?.title || r.data?.detail || `Historic AIS HTTP ${r.status}`);
+      err.status = r.status;
+      throw err;
+    }
+    list = Array.isArray(r.data) ? r.data : Array.isArray(r.data?.tracks) ? r.data.tracks : [];
+  } else {
+    endpoint = 'tracks';
+    const to = new Date();
+    const from = new Date(to.getTime() - clampedDays * 24 * 60 * 60 * 1000);
+    const fromIso = from.toISOString().replace(/\.\d{3}Z$/, 'Z');
+    const toIso = to.toISOString().replace(/\.\d{3}Z$/, 'Z');
+    const url = `https://historic.ais.barentswatch.no/v1/historic/tracks/${encodeURIComponent(mmsi)}/${encodeURIComponent(fromIso)}/${encodeURIComponent(toIso)}`;
+    const r = await axios.get(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      httpsAgent: agent,
+      timeout: 60000,
+      validateStatus: (s) => s >= 200 && s < 500,
+      params: { filterSatellitePositions: false },
+    });
+    if (r.status >= 400) {
+      const err: any = new Error(r.data?.title || r.data?.detail || `Historic AIS HTTP ${r.status}`);
+      err.status = r.status;
+      throw err;
+    }
+    list = Array.isArray(r.data) ? r.data : Array.isArray(r.data?.tracks) ? r.data.tracks : [];
+  }
+
+  const rows = list
+    .map((v) => ({
+      lon: Number(v.longitude ?? v.lon ?? v.lng),
+      lat: Number(v.latitude ?? v.lat),
+      time: v.msgtime || v.msgTime || v.timestamp || v.time || null,
+      speed: v.speedOverGround ?? v.sog ?? v.speed ?? null,
+      course: v.courseOverGround ?? v.cog ?? v.course ?? null,
+      heading: v.trueHeading ?? v.heading ?? null,
+      name: v.name || null,
+      shipType: v.shipType ?? null,
+      mmsi: String(v.mmsi ?? mmsi),
+    }))
+    .filter((p) => Number.isFinite(p.lon) && Number.isFinite(p.lat) && p.time)
+    .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+
+  const keep: typeof rows = [];
+  let lastKeptTs = 0;
+  const stepMs = intervalMin * 60 * 1000;
+  for (const p of rows) {
+    const t = new Date(p.time).getTime();
+    if (!Number.isFinite(t)) continue;
+    if (keep.length === 0 || t - lastKeptTs >= stepMs) {
+      keep.push(p);
+      lastKeptTs = t;
+    }
+  }
+  if (rows.length && (!keep.length || keep[keep.length - 1].time !== rows[rows.length - 1].time)) {
+    keep.push(rows[rows.length - 1]);
+  }
+
+  const line = {
+    type: 'Feature',
+    geometry: { type: 'LineString', coordinates: keep.map((p) => [p.lon, p.lat]) },
+    properties: { mmsi, points: keep.length, days: clampedDays },
+  };
+  const points = {
+    type: 'FeatureCollection',
+    features: keep.map((p) => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+      properties: {
+        mmsi,
+        time: p.time,
+        speed: p.speed,
+        course: p.course,
+        heading: p.heading,
+      },
+    })),
+  };
+  return {
+    line,
+    points,
+    meta: {
+      mmsi,
+      days: clampedDays,
+      endpoint,
+      raw: list.length,
+      returned: keep.length,
+      intervalMin,
+      source: 'BarentsWatch Historic AIS (open, Norwegian waters, ≤14 days)',
+      maxLookbackDays: 14,
+    },
+  };
+}
+
 app.get('/api/tracks24h', async (req, res) => {
   try {
     const mmsi = String(req.query.mmsi || '').trim();
-    const intervalMin = Math.max(5, Math.min(120, parseInt(String(req.query.interval || '30'), 10) || 30));
+    const intervalMin = Math.max(5, Math.min(120, parseInt(String(req.query.interval || '15'), 10) || 15));
+    const days = Math.max(1, Math.min(14, parseInt(String(req.query.days || '1'), 10) || 1));
     if (!mmsi) return res.status(400).json({ error: 'mmsi required' });
-    const token = await getBarentsWatchAccessToken();
-    if (!token) return res.status(400).json({ error: 'BarentsWatch credentials not configured' });
-    const httpsAgent = new https.Agent({ rejectUnauthorized: false });
-    const url = `https://historic.ais.barentswatch.no/v1/historic/trackslast24hours/${encodeURIComponent(mmsi)}`;
-    const r = await axios.get(url, { headers: { Authorization: `Bearer ${token}` }, httpsAgent, timeout: 20000 });
-    const list: any[] = Array.isArray(r.data) ? r.data : [];
-    // Normalize and sort by time ascending
-    const rows = list.map(v => ({
-      lon: v.longitude,
-      lat: v.latitude,
-      time: v.msgtime,
-      speed: v.speedOverGround,
-      course: v.courseOverGround,
-      heading: v.trueHeading,
-      name: v.name,
-      shipType: v.shipType,
-      mmsi: v.mmsi
-    })).filter(p => typeof p.lon === 'number' && typeof p.lat === 'number' && p.time).sort((a,b)=> new Date(a.time).getTime() - new Date(b.time).getTime());
-    // Downsample by interval
-    const keep: typeof rows = [];
-    let lastKeptTs = 0;
-    const stepMs = intervalMin * 60 * 1000;
-    for (const p of rows) {
-      const t = new Date(p.time).getTime();
-      if (!isFinite(t)) continue;
-      if (keep.length === 0 || (t - lastKeptTs) >= stepMs) {
-        keep.push(p);
-        lastKeptTs = t;
-      }
-    }
-    // Build GeoJSON for convenience
-    const line = { type: 'Feature', geometry: { type: 'LineString', coordinates: keep.map(p=>[p.lon,p.lat]) }, properties: { mmsi } };
-    const points = { type: 'FeatureCollection', features: keep.map(p=>({ type:'Feature', geometry:{ type:'Point', coordinates:[p.lon,p.lat]}, properties:{ mmsi, time:p.time, speed:p.speed, course:p.course, heading:p.heading } })) };
-    res.json({ line, points });
-  } catch (e:any) {
-    res.status(500).json({ error: e?.message || String(e) });
+    const data = await fetchHistoricTrack(mmsi, days, intervalMin);
+    res.json(data);
+  } catch (e: any) {
+    const status = e?.status || 500;
+    console.warn('[tracks]', e?.message || e);
+    res.status(status).json({
+      error: e?.message || String(e),
+      line: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] }, properties: { mmsi: req.query.mmsi } },
+      points: { type: 'FeatureCollection', features: [] },
+    });
+  }
+});
+
+app.get('/api/tracks', async (req, res) => {
+  try {
+    const mmsi = String(req.query.mmsi || '').trim();
+    const intervalMin = Math.max(5, Math.min(120, parseInt(String(req.query.interval || '15'), 10) || 15));
+    const days = Math.max(1, Math.min(14, parseInt(String(req.query.days || '1'), 10) || 1));
+    if (!mmsi) return res.status(400).json({ error: 'mmsi required' });
+    res.json(await fetchHistoricTrack(mmsi, days, intervalMin));
+  } catch (e: any) {
+    res.status(e?.status || 500).json({ error: e?.message || String(e) });
   }
 });
 
@@ -673,16 +1554,39 @@ app.get('/api/russian-near-cables', async (req, res) => {
 
 // GFW proxy endpoints — Global Fishing Watch API v3
 // Docs: https://globalfishingwatch.org/our-apis/documentation/docs/v3
+// Gaps first — AIS-off is the priority layer and shouldn't wait on denser datasets.
 const GFW_EVENT_DATASETS = [
+  'public-global-gaps-events:latest',
   'public-global-loitering-events:latest',
   'public-global-encounters-events:latest',
   'public-global-port-visits-events:latest',
-  'public-global-gaps-events:latest',
 ] as const;
 
 type GfwCacheEntry = { ts: number; payload: any };
 const GFW_EVENTS_CACHE = new Map<string, GfwCacheEntry>();
 const GFW_CACHE_TTL_MS = 10 * 60 * 1000;
+/** Share in-flight loads so concurrent warm/UI requests don't stampede GFW. */
+const GFW_EVENTS_INFLIGHT = new Map<string, Promise<any>>();
+
+function getGfwEventsCached(hours: number): any | null {
+  const cacheKey = `events:${hours}`;
+  const cached = GFW_EVENTS_CACHE.get(cacheKey);
+  if (cached && Date.now() - cached.ts < GFW_CACHE_TTL_MS) return cached.payload;
+  return null;
+}
+
+function loadGfwEventsShared(hours: number, limitRaw = 500): Promise<any> {
+  const cacheKey = `events:${hours}`;
+  const fresh = getGfwEventsCached(hours);
+  if (fresh) return Promise.resolve(fresh);
+  const existing = GFW_EVENTS_INFLIGHT.get(cacheKey);
+  if (existing) return existing;
+  const p = loadGfwEvents(hours, limitRaw).finally(() => {
+    GFW_EVENTS_INFLIGHT.delete(cacheKey);
+  });
+  GFW_EVENTS_INFLIGHT.set(cacheKey, p);
+  return p;
+}
 
 /** Norway monitoring bbox (mainland + Jan Mayen + Svalbard) */
 function gfwMonitorGeometry(): { type: 'Polygon'; coordinates: number[][][] } {
@@ -690,6 +1594,11 @@ function gfwMonitorGeometry(): { type: 'Polygon'; coordinates: number[][][] } {
     type: 'Polygon',
     coordinates: [[[-10, 57.5], [35, 57.5], [35, 81], [-10, 81], [-10, 57.5]]],
   };
+}
+
+function pointInGfwMonitorBbox(lon: number, lat: number): boolean {
+  // Slightly wider so Barents / coastal Russia AIS-off events are kept
+  return lon >= -15 && lon <= 45 && lat >= 54 && lat <= 82;
 }
 
 function normalizeGfwEventType(raw: unknown): string {
@@ -705,10 +1614,20 @@ function normalizeGfwEventType(raw: unknown): string {
 function gfwEventPosition(ev: any): { lon: number; lat: number } | null {
   let lon: number | undefined;
   let lat: number | undefined;
-  if (ev?.position) {
+  // Prefer AIS-off / on positions when present (gap events)
+  const off = ev?.gap?.offPosition;
+  if (off) {
+    lon = Number(off.lon ?? off.longitude);
+    lat = Number(off.lat ?? off.latitude);
+  }
+  if ((!Number.isFinite(lon) || !Number.isFinite(lat)) && ev?.position) {
     lon = Number(ev.position.lon ?? ev.position.longitude);
     lat = Number(ev.position.lat ?? ev.position.latitude);
-  } else if (ev?.geometry?.type === 'Point' && Array.isArray(ev.geometry.coordinates)) {
+  } else if (
+    (!Number.isFinite(lon) || !Number.isFinite(lat)) &&
+    ev?.geometry?.type === 'Point' &&
+    Array.isArray(ev.geometry.coordinates)
+  ) {
     lon = Number(ev.geometry.coordinates[0]);
     lat = Number(ev.geometry.coordinates[1]);
   }
@@ -734,7 +1653,47 @@ function isRecentEnoughGfwEvent(ev: any, windowStart: number, now: number): bool
   return true;
 }
 
-function mapGfwEntry(ev: any) {
+function normalizeImo(raw: unknown): string | null {
+  const m = String(raw || '').match(/\b(\d{7})\b/);
+  return m ? m[1] : null;
+}
+
+function normalizeMmsi(raw: unknown): string | null {
+  const m = String(raw || '').match(/\b(\d{9})\b/);
+  return m ? m[1] : null;
+}
+
+function isRussianIdentity(mmsi: string | null, flag: string | null): boolean {
+  if (flag && String(flag).toUpperCase() === 'RUS') return true;
+  if (mmsi && mmsi.startsWith('273')) return true;
+  return false;
+}
+
+type GfwVesselInterest = {
+  russian: boolean;
+  sanctioned: boolean;
+  shadowfleet: boolean;
+  interest: boolean;
+};
+
+function classifyGfwVesselInterest(mmsi: string | null, imo: string | null, flag: string | null): GfwVesselInterest {
+  const russian = isRussianIdentity(mmsi, flag);
+  const sanctioned = Boolean(
+    (mmsi && SANCTIONED_MMSI.has(mmsi)) || (imo && SANCTIONED_IMO.has(imo))
+  );
+  const shadowfleet = Boolean(
+    (mmsi && (SHADOWFLEET_MMSI.has(mmsi) || SHADOW_TEST_SET.has(mmsi))) ||
+      (imo && SHADOWFLEET_IMO.has(imo))
+  );
+  return {
+    russian,
+    sanctioned,
+    shadowfleet,
+    interest: russian || sanctioned || shadowfleet,
+  };
+}
+
+function mapGfwEntry(ev: any, opts?: { requireInterest?: boolean }) {
   const pos = gfwEventPosition(ev);
   if (!pos) return null;
   const subtype = normalizeGfwEventType(ev.type || ev.eventType);
@@ -742,14 +1701,49 @@ function mapGfwEntry(ev: any) {
   const vessels: string[] = [];
   if (vesselName) vessels.push(String(vesselName));
   if (ev.encounter?.vessel?.name) vessels.push(String(ev.encounter.vessel.name));
+  const startIso = ev.start || ev.time || ev.startTime || null;
+  const endIso = ev.end || null;
+  let duration = ev.duration || ev.loitering?.totalTimeHours || ev.gap?.durationHours || null;
+  if (duration == null && startIso && endIso) {
+    const ms = Date.parse(endIso) - Date.parse(startIso);
+    if (Number.isFinite(ms) && ms > 0) duration = ms / 3600e3;
+  }
+  const mmsi = normalizeMmsi(ev.vessel?.ssvid || ev.vessel?.mmsi);
+  const partnerMmsi = normalizeMmsi(ev.encounter?.vessel?.ssvid || ev.encounter?.vessel?.mmsi);
+  const imo = normalizeImo(ev.vessel?.imo || ev.vessel?.imoNumber);
+  const partnerImo = normalizeImo(ev.encounter?.vessel?.imo || ev.encounter?.vessel?.imoNumber);
+  const flag = ev.vessel?.flag ? String(ev.vessel.flag).toUpperCase() : null;
+  const partnerFlag = ev.encounter?.vessel?.flag
+    ? String(ev.encounter.vessel.flag).toUpperCase()
+    : null;
+
+  const primary = classifyGfwVesselInterest(mmsi, imo, flag);
+  const partner = classifyGfwVesselInterest(partnerMmsi, partnerImo, partnerFlag);
+  const interest = primary.interest || partner.interest;
+  const requireInterest = opts?.requireInterest !== false;
+  if (requireInterest && !interest) return null;
+
+  const intentional =
+    ev.gap?.intentionalDisabling === true || ev.gap?.intentionalDisabling === 'true';
+
   return {
     type: subtype,
-    time: ev.start || ev.time || ev.startTime || null,
-    end: ev.end || null,
-    duration: ev.duration || ev.loitering?.totalTimeHours || null,
+    time: startIso,
+    end: endIso,
+    duration,
     position: pos,
     vessels,
-    mmsi: ev.vessel?.ssvid || ev.vessel?.mmsi || null,
+    mmsi,
+    partnerMmsi,
+    imo,
+    partnerImo,
+    flag,
+    partnerFlag,
+    russian: primary.russian || partner.russian,
+    sanctioned: primary.sanctioned || partner.sanctioned,
+    shadowfleet: primary.shadowfleet || partner.shadowfleet,
+    intentionalDisabling: intentional || null,
+    gapDistanceKm: ev.gap?.distanceKm != null ? Number(ev.gap.distanceKm) : null,
     links: ev.links || [],
   };
 }
@@ -764,8 +1758,10 @@ async function fetchGfwDatasetPage(
   limit: number
 ): Promise<{ dataset: string; entries: any[]; total: number; scanned: number; error?: string }> {
   try {
-    // Newest-first is required — default GFW order is oldest-first and misses the window
-    const pageLimit = Math.min(200, Math.max(limit, dataset.includes('port-visits') ? 100 : limit));
+    if (dataset.includes('gaps')) {
+      return await fetchGfwGapsInAoi(client, dataset, startDate, endDate, windowStart, now, limit);
+    }
+    const pageLimit = Math.min(500, Math.max(100, limit));
     const r = await client.post(
       '/events',
       { datasets: [dataset], startDate, endDate, geometry: gfwMonitorGeometry() },
@@ -781,7 +1777,7 @@ async function fetchGfwDatasetPage(
     const seen = new Set<string>();
     for (const ev of raw) {
       if (!isRecentEnoughGfwEvent(ev, windowStart, now)) continue;
-      const mapped = mapGfwEntry(ev);
+      const mapped = mapGfwEntry(ev, { requireInterest: true });
       if (!mapped) continue;
       const key = `${mapped.type}|${mapped.time}|${mapped.position.lon.toFixed(3)}|${mapped.position.lat.toFixed(3)}|${mapped.mmsi || ''}`;
       if (seen.has(key)) continue;
@@ -797,46 +1793,208 @@ async function fetchGfwDatasetPage(
   }
 }
 
-async function loadGfwEvents(hours: number, limitRaw = 100) {
+/**
+ * AIS gap events: GFW returns empty when geometry is set.
+ * 1) Flag-filter NOR/RUS (fast, sparse)
+ * 2) Paginate global recent gaps and keep AOI hits (other flags near Norway)
+ */
+async function fetchGfwGapsInAoi(
+  client: ReturnType<typeof gfwClient>,
+  dataset: string,
+  startDate: string,
+  endDate: string,
+  windowStart: number,
+  now: number,
+  limit: number
+): Promise<{ dataset: string; entries: any[]; total: number; scanned: number; error?: string }> {
+  const want = Math.min(120, Math.max(30, limit));
+  const entries: any[] = [];
+  const seen = new Set<string>();
+  let scanned = 0;
+  let total = 0;
+  let lastError: string | undefined;
+
+  const pushMapped = (ev: any) => {
+    if (!isRecentEnoughGfwEvent(ev, windowStart, now)) return;
+    const mapped = mapGfwEntry(ev, { requireInterest: false });
+    if (!mapped) return;
+    if (!pointInGfwMonitorBbox(mapped.position.lon, mapped.position.lat)) return;
+    const key = `${mapped.type}|${mapped.time}|${mapped.position.lon.toFixed(3)}|${mapped.position.lat.toFixed(3)}|${mapped.mmsi || ''}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    entries.push(mapped);
+  };
+
+  const attempts: { flags?: string[]; pageSize: number; maxPages: number }[] = [
+    { flags: ['RUS', 'NOR'], pageSize: 200, maxPages: 3 },
+    // Recent global gaps are mostly outside our AOI — scan deeper for northern hits
+    { pageSize: 500, maxPages: 8 },
+  ];
+
+  for (const attempt of attempts) {
+    if (entries.length >= want) break;
+    try {
+      const body: any = { datasets: [dataset], startDate, endDate };
+      if (attempt.flags) body.flags = attempt.flags;
+
+      for (let page = 0; page < attempt.maxPages && entries.length < want; page++) {
+        const r = await client.post('/events', body, {
+          params: { limit: attempt.pageSize, offset: page * attempt.pageSize, sort: '-start' },
+          validateStatus: (s) => s >= 200 && s < 300,
+          timeout: 90000,
+        });
+        total = Math.max(total, Number(r.data?.total || 0));
+        const raw: any[] = r.data?.entries || [];
+        scanned += raw.length;
+        if (!raw.length) break;
+        for (const ev of raw) {
+          pushMapped(ev);
+          if (entries.length >= want) break;
+        }
+        if (raw.length < attempt.pageSize) break;
+      }
+    } catch (e: any) {
+      lastError =
+        e?.response?.data?.messages?.[0]?.detail || e?.response?.data?.error || e?.message || String(e);
+      console.warn('[gfw/gaps]', attempt.flags ? attempt.flags.join(',') : 'global', lastError);
+    }
+  }
+
+  console.log(`[gfw/gaps] aoi=${entries.length} scanned=${scanned} total=${total}`);
+  return {
+    dataset,
+    entries,
+    total,
+    scanned,
+    error: entries.length === 0 ? lastError : undefined,
+  };
+}
+
+/** Split [start,end] into ~7-day chunks so dense GFW datasets cover the full lookback. */
+function gfwDateChunks(start: Date, end: Date): { startDate: string; endDate: string }[] {
+  const chunks: { startDate: string; endDate: string }[] = [];
+  const weekMs = 7 * 24 * 3600e3;
+  let cursor = start.getTime();
+  const endMs = end.getTime();
+  while (cursor < endMs) {
+    const chunkEnd = Math.min(cursor + weekMs, endMs);
+    chunks.push({
+      startDate: new Date(cursor).toISOString().slice(0, 10),
+      endDate: new Date(chunkEnd).toISOString().slice(0, 10),
+    });
+    cursor = chunkEnd;
+  }
+  return chunks.length ? chunks : [{ startDate: start.toISOString().slice(0, 10), endDate: end.toISOString().slice(0, 10) }];
+}
+
+async function fetchGfwDatasetAcrossWindow(
+  client: ReturnType<typeof gfwClient>,
+  dataset: string,
+  start: Date,
+  end: Date,
+  limit: number
+): Promise<{ dataset: string; entries: any[]; total: number; scanned: number; error?: string }> {
+  const dense = dataset.includes('loitering') || dataset.includes('port-visits');
+  const isGaps = dataset.includes('gaps');
+  // Gaps: one window + pagination (geometry unsupported). Others: weekly chunks when dense.
+  const chunks =
+    dense && !isGaps
+      ? gfwDateChunks(start, end)
+      : [
+          {
+            startDate: start.toISOString().slice(0, 10),
+            endDate: new Date(end.getTime() + 24 * 3600e3).toISOString().slice(0, 10),
+          },
+        ];
+  const perChunk = Math.min(500, Math.max(200, limit));
+
+  const merged: any[] = [];
+  const seen = new Set<string>();
+  let total = 0;
+  let scanned = 0;
+  let lastError: string | undefined;
+
+  for (const chunk of chunks) {
+    const page = await fetchGfwDatasetPage(
+      client,
+      dataset,
+      chunk.startDate,
+      chunk.endDate,
+      start.getTime(),
+      end.getTime(),
+      perChunk
+    );
+    total = Math.max(total, page.total);
+    scanned += page.scanned;
+    if (page.error) lastError = page.error;
+    for (const e of page.entries) {
+      const key = `${e.type}|${e.time}|${e.position.lon.toFixed(3)}|${e.position.lat.toFixed(3)}|${e.mmsi || ''}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(e);
+    }
+  }
+
+  return {
+    dataset,
+    entries: merged,
+    total,
+    scanned,
+    error: merged.length === 0 ? lastError : undefined,
+  };
+}
+
+async function loadGfwEvents(hours: number, limitRaw = 200) {
   const cacheKey = `events:${hours}`;
+  await Promise.all([ensureSanctionedLoaded(), ensureShadowLoaded()]);
   const client = gfwClient();
   const end = new Date();
   const start = new Date(end.getTime() - hours * 3600 * 1000);
   const startDate = start.toISOString().slice(0, 10);
   const endDate = new Date(end.getTime() + 24 * 3600 * 1000).toISOString().slice(0, 10);
-  const limit = Math.min(200, Math.max(50, limitRaw || 100));
+  const limit = Math.min(500, Math.max(100, limitRaw || 200));
 
-  // Sequential — GFW rate-limits / times out under parallel POSTs
-  const lists: Awaited<ReturnType<typeof fetchGfwDatasetPage>>[] = [];
+  // Sequential — GFW rate-limits / times out under parallel POSTs.
+  // Progressive cache after each dataset so AIS-off (first) is usable ASAP.
+  const lists: Awaited<ReturnType<typeof fetchGfwDatasetAcrossWindow>>[] = [];
+  const publish = (partial: boolean) => {
+    const events = lists.flatMap((l) => l.entries);
+    const payload = {
+      events,
+      meta: {
+        returned: events.length,
+        startDate,
+        endDate,
+        hours,
+        source: 'gfw-v3',
+        filter: 'events: russian|sanctioned|shadow; ais_off: all in AOI; detections: GFW SAR',
+        partial,
+        datasets: lists.map((l) => ({
+          dataset: l.dataset,
+          total: l.total,
+          scanned: l.scanned,
+          returned: l.entries.length,
+          error: l.error || null,
+        })),
+      },
+    };
+    const anyOk = lists.some((l) => l.entries.length > 0 || (!l.error && l.scanned > 0));
+    if (anyOk || events.length > 0) {
+      GFW_EVENTS_CACHE.set(cacheKey, { ts: Date.now(), payload });
+    }
+    return payload;
+  };
+
   for (const dataset of GFW_EVENT_DATASETS) {
-    lists.push(
-      await fetchGfwDatasetPage(client, dataset, startDate, endDate, start.getTime(), end.getTime(), limit)
+    lists.push(await fetchGfwDatasetAcrossWindow(client, dataset, start, end, limit));
+    const mid = publish(lists.length < GFW_EVENT_DATASETS.length);
+    console.log(
+      `[gfw/events] progress ${lists.length}/${GFW_EVENT_DATASETS.length} returned=${mid.events.length}`
     );
   }
 
-  const events = lists.flatMap((l) => l.entries);
-  const payload = {
-    events,
-    meta: {
-      returned: events.length,
-      startDate,
-      endDate,
-      hours,
-      source: 'gfw-v3',
-      datasets: lists.map((l) => ({
-        dataset: l.dataset,
-        total: l.total,
-        scanned: l.scanned,
-        returned: l.entries.length,
-        error: l.error || null,
-      })),
-    },
-  };
-  const anyOk = lists.some((l) => l.entries.length > 0 || (!l.error && l.scanned > 0));
-  if (anyOk || events.length > 0) {
-    GFW_EVENTS_CACHE.set(cacheKey, { ts: Date.now(), payload });
-  }
-  console.log(`[gfw/events] returned=${events.length} hours=${hours}`);
+  const payload = publish(false);
+  console.log(`[gfw/events] returned=${payload.events.length} hours=${hours}`);
   return payload;
 }
 
@@ -845,15 +2003,43 @@ app.get('/api/gfw/events', async (req, res) => {
     if (!GFW_API_TOKEN) {
       return res.status(400).json({ error: 'GFW_API_TOKEN not configured', events: [] });
     }
-    // Default 7 days — GFW OVERLAP returns long-running events; short windows often yield nothing useful
-    const hours = Math.max(24, Math.min(24 * 30, parseInt(String(req.query.hours || '168'), 10) || 168));
+    // Default 30 days — shipping-watch lookback for loitering / encounters / ports
+    const hours = Math.max(24, Math.min(24 * 90, parseInt(String(req.query.hours || '720'), 10) || 720));
     const cacheKey = `events:${hours}`;
     const cached = GFW_EVENTS_CACHE.get(cacheKey);
     if (cached && Date.now() - cached.ts < GFW_CACHE_TTL_MS) {
       return res.json({ ...cached.payload, meta: { ...cached.payload.meta, cached: true } });
     }
 
-    const payload = await loadGfwEvents(hours, parseInt(String(req.query.limit || '100'), 10) || 100);
+    // Serve stale cache immediately while a refresh runs (GFW scans can take minutes).
+    if (cached?.payload) {
+      if (!GFW_EVENTS_INFLIGHT.has(cacheKey)) {
+        loadGfwEventsShared(hours, parseInt(String(req.query.limit || '500'), 10) || 500).catch(
+          (e) => console.warn('[gfw/events] background refresh', e?.message || e)
+        );
+      }
+      return res.json({
+        ...cached.payload,
+        meta: { ...cached.payload.meta, cached: true, stale: true, refreshing: true },
+      });
+    }
+
+    // No cache yet: kick off shared load and wait, but cap wait so the UI isn't stuck forever.
+    const limit = parseInt(String(req.query.limit || '500'), 10) || 500;
+    const loadPromise = loadGfwEventsShared(hours, limit);
+    const payload = await Promise.race([
+      loadPromise,
+      new Promise<any>((resolve) =>
+        setTimeout(
+          () =>
+            resolve({
+              events: [],
+              meta: { loading: true, hours, note: 'GFW still loading — retry shortly' },
+            }),
+          12_000
+        )
+      ),
+    ]);
     res.json(payload);
   } catch (e: any) {
     const detail =
@@ -866,16 +2052,171 @@ app.get('/api/gfw/events', async (req, res) => {
   }
 });
 
-app.get('/api/gfw/detections', async (_req, res) => {
-  res.json({
-    detections: [],
+const GFW_DETECTIONS_CACHE = new Map<string, GfwCacheEntry>();
+const GFW_DETECTIONS_INFLIGHT = new Map<string, Promise<any>>();
+
+function parseSarReportEntries(data: any, matched: boolean): any[] {
+  const out: any[] = [];
+  const seen = new Set<string>();
+  const rows = Array.isArray(data?.entries) ? data.entries : [];
+  for (const block of rows) {
+    if (!block || typeof block !== 'object') continue;
+    for (const key of Object.keys(block)) {
+      if (!key.includes('sar-presence')) continue;
+      const list = Array.isArray(block[key]) ? block[key] : [];
+      for (const d of list) {
+        const lon = Number(d.lon ?? d.longitude);
+        const lat = Number(d.lat ?? d.latitude);
+        if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
+        if (!pointInSarZones(lon, lat)) continue;
+        const time = d.date || d.entryTimestamp || d.time || null;
+        const mmsi = normalizeMmsi(d.mmsi || d.ssvid);
+        const keyId = `${matched ? 1 : 0}|${time}|${lon.toFixed(3)}|${lat.toFixed(3)}|${mmsi || ''}`;
+        if (seen.has(keyId)) continue;
+        seen.add(keyId);
+        out.push({
+          type: matched ? 'sar_matched' : 'sar',
+          subtype: matched ? 'sar_matched' : 'sar',
+          matched,
+          time,
+          position: { lon, lat },
+          detections: Number(d.detections || 1),
+          mmsi,
+          imo: normalizeImo(d.imo),
+          vessel: d.shipName || d.vesselName || null,
+          flag: d.flag ? String(d.flag).toUpperCase() : null,
+          vesselId: d.vesselId || null,
+          vesselType: d.vesselType || null,
+          geartype: d.geartype || null,
+          source: 'gfw-4wings-sar',
+          note: matched
+            ? 'SAR detection matched to AIS (GFW)'
+            : 'SAR detection with no AIS match — possible dark vessel (GFW)',
+        });
+      }
+    }
+  }
+  return out;
+}
+
+async function fetchSarPresenceReport(
+  client: ReturnType<typeof gfwClient>,
+  startDate: string,
+  endDate: string,
+  matched: boolean
+): Promise<{ detections: any[]; error?: string }> {
+  try {
+    const r = await client.post(
+      '/4wings/report',
+      { geojson: sarZonesRequestGeometry() },
+      {
+        params: {
+          'spatial-resolution': 'HIGH',
+          'temporal-resolution': 'HOURLY',
+          'datasets[0]': 'public-global-sar-presence:latest',
+          'date-range': `${startDate},${endDate}`,
+          format: 'JSON',
+          'filters[0]': matched ? "matched='true'" : "matched='false'",
+        },
+        validateStatus: (s) => s >= 200 && s < 300,
+        timeout: 120000,
+      }
+    );
+    return { detections: parseSarReportEntries(r.data, matched) };
+  } catch (e: any) {
+    const detail =
+      e?.response?.data?.messages?.[0]?.detail || e?.response?.data?.error || e?.message || String(e);
+    console.warn('[gfw/detections] sar', matched ? 'matched' : 'unmatched', detail);
+    return { detections: [], error: detail };
+  }
+}
+
+async function loadGfwDetections(hours: number) {
+  // Always last 30 days inside Norway EEZ / Jan Mayen EEZ / Svalbard FPZ
+  const lookbackHours = Math.min(SAR_LOOKBACK_HOURS, Math.max(24, hours || SAR_LOOKBACK_HOURS));
+  const cacheKey = `detections:zones:${lookbackHours}`;
+  const client = gfwClient();
+  // SAR presence lags ~5 days — window is 30d of available SAR ending at lag
+  const end = new Date(Date.now() - 5 * 24 * 3600e3);
+  const start = new Date(end.getTime() - lookbackHours * 3600e3);
+  const startDate = start.toISOString().slice(0, 10);
+  const endDate = end.toISOString().slice(0, 10);
+
+  // Unmatched first (dark), then matched for context — sequential to avoid GFW concurrency limits
+  const unmatched = await fetchSarPresenceReport(client, startDate, endDate, false);
+  const matched = await fetchSarPresenceReport(client, startDate, endDate, true);
+  // Cap for map performance — prefer unmatched (dark) over matched
+  const unmatchedCap = unmatched.detections.slice(0, 800);
+  const matchedCap = matched.detections.slice(0, 400);
+  const detections = [...unmatchedCap, ...matchedCap];
+  const payload = {
+    detections,
     meta: {
+      returned: detections.length,
+      unmatched: unmatched.detections.length,
+      matched: matched.detections.length,
+      unmatchedShown: unmatchedCap.length,
+      matchedShown: matchedCap.length,
+      startDate,
+      endDate,
+      hours: lookbackHours,
+      zones: ['norway-eez', 'janmayen-eez', 'svalbard-fpz'],
+      source: 'gfw-4wings-sar',
+      dataset: 'public-global-sar-presence:latest',
       note:
-        'GFW v3 has no point SAR/VIIRS detections API. Use AIS-off (gap events). SAR is 4Wings tiles only.',
-      sarDataset: 'public-global-sar-presence:latest',
-      availableViaEvents: ['ais_off'],
+        'SAR only in Norway EEZ, Jan Mayen EEZ, and Svalbard FPZ · last 30 days · unmatched = no AIS match (possible dark) · lags ~5 days',
+      errors: [unmatched.error, matched.error].filter(Boolean),
     },
+  };
+  GFW_DETECTIONS_CACHE.set(cacheKey, { ts: Date.now(), payload });
+  console.log(
+    `[gfw/detections] unmatched=${unmatched.detections.length} matched=${matched.detections.length} zones=${SAR_ZONES.length}`
+  );
+  return payload;
+}
+
+function loadGfwDetectionsShared(hours: number = SAR_LOOKBACK_HOURS): Promise<any> {
+  const lookbackHours = Math.min(SAR_LOOKBACK_HOURS, Math.max(24, hours || SAR_LOOKBACK_HOURS));
+  const cacheKey = `detections:zones:${lookbackHours}`;
+  const cached = GFW_DETECTIONS_CACHE.get(cacheKey);
+  if (cached && Date.now() - cached.ts < GFW_CACHE_TTL_MS) return Promise.resolve(cached.payload);
+  const existing = GFW_DETECTIONS_INFLIGHT.get(cacheKey);
+  if (existing) return existing;
+  const p = loadGfwDetections(lookbackHours).finally(() => {
+    GFW_DETECTIONS_INFLIGHT.delete(cacheKey);
   });
+  GFW_DETECTIONS_INFLIGHT.set(cacheKey, p);
+  return p;
+}
+
+app.get('/api/gfw/detections', async (req, res) => {
+  try {
+    if (!GFW_API_TOKEN) {
+      return res.status(400).json({
+        detections: [],
+        error: 'GFW_API_TOKEN not configured',
+      });
+    }
+    // Fixed 30-day lookback inside EEZ/FPZ zones
+    const hours = SAR_LOOKBACK_HOURS;
+    const cacheKey = `detections:zones:${hours}`;
+    const cached = GFW_DETECTIONS_CACHE.get(cacheKey);
+    if (cached && Date.now() - cached.ts < GFW_CACHE_TTL_MS) {
+      return res.json({ ...cached.payload, meta: { ...cached.payload.meta, cached: true } });
+    }
+    // Return stale while refreshing if available
+    if (cached) {
+      loadGfwDetectionsShared(hours).catch(() => undefined);
+      return res.json({
+        ...cached.payload,
+        meta: { ...cached.payload.meta, cached: true, refreshing: true },
+      });
+    }
+    const payload = await loadGfwDetectionsShared(hours);
+    res.json(payload);
+  } catch (e: any) {
+    res.status(500).json({ detections: [], error: e?.message || String(e) });
+  }
 });
 
 app.get('/api/gfw/status', (_req, res) => {
@@ -889,6 +2230,73 @@ app.get('/api/gfw/status', (_req, res) => {
     base: GFW_API_BASE,
     cache: cached,
   });
+});
+
+/** Proxy ship-info.com vessel photos by IMO (same asset Arctic tools reference). */
+const SHIP_PHOTO_CACHE = new Map<string, { ts: number; buf: Buffer; type: string; ok: boolean }>();
+const SHIP_PHOTO_TTL_MS = 24 * 3600e3;
+const SHIP_PHOTO_NEG_TTL_MS = 6 * 3600e3;
+
+app.get('/api/ship-photo/:imo', async (req, res) => {
+  const imo = String(req.params.imo || '').replace(/\D/g, '');
+  if (!/^\d{7}$/.test(imo)) {
+    return res.status(400).json({ error: 'IMO must be 7 digits' });
+  }
+  const cached = SHIP_PHOTO_CACHE.get(imo);
+  const now = Date.now();
+  if (cached) {
+    const ttl = cached.ok ? SHIP_PHOTO_TTL_MS : SHIP_PHOTO_NEG_TTL_MS;
+    if (now - cached.ts < ttl) {
+      if (!cached.ok) return res.status(404).end();
+      res.setHeader('Content-Type', cached.type);
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      res.setHeader('X-Photo-Source', 'ship-info.com');
+      return res.send(cached.buf);
+    }
+  }
+  try {
+    const url = `https://www.ship-info.com/vessels/${imo}.jpg`;
+    const r = await axios.get(url, {
+      responseType: 'arraybuffer',
+      timeout: 12000,
+      httpsAgent: httpsAgent(),
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        Referer: 'https://www.ship-info.com/prog/search_fish.asp',
+      },
+      validateStatus: (s) => s >= 200 && s < 500,
+    });
+    const type = String(r.headers['content-type'] || '');
+    const buf = Buffer.from(r.data || []);
+    const ok =
+      r.status === 200 &&
+      buf.length > 2000 &&
+      (/image\/(jpeg|jpg|png|webp)/i.test(type) || buf[0] === 0xff);
+    SHIP_PHOTO_CACHE.set(imo, {
+      ts: now,
+      buf: ok ? buf : Buffer.alloc(0),
+      type: ok ? type || 'image/jpeg' : 'application/octet-stream',
+      ok,
+    });
+    if (!ok) return res.status(404).end();
+    res.setHeader('Content-Type', type || 'image/jpeg');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('X-Photo-Source', 'ship-info.com');
+    return res.send(buf);
+  } catch (e: any) {
+    SHIP_PHOTO_CACHE.set(imo, {
+      ts: now,
+      buf: Buffer.alloc(0),
+      type: 'application/octet-stream',
+      ok: false,
+    });
+    console.warn('[ship-photo]', imo, e?.message || e);
+    return res.status(404).end();
+  }
 });
 
 app.get('/api/sanctions/status', (_req, res) => {
@@ -916,10 +2324,10 @@ app.post('/api/sanctions/refresh', async (_req, res) => {
 const publicDir = path.join(__dirname, 'public');
 if (!fs.existsSync(publicDir)) fs.mkdirSync(publicDir);
 // Expose user-provided icons (flags and category markers)
-app.use('/flags', express.static('/Users/vegardhalkjelsvik/Dev/svalmap/data/source/flag-icons'));
-app.use('/flag-icons', express.static('/Users/vegardhalkjelsvik/Dev/svalmap/data/source/flag-icons'));
-app.use('/markers', express.static('/Users/vegardhalkjelsvik/Dev/svalmap/data/source/Mapmarkers'));
-app.use('/menu', express.static('/Users/vegardhalkjelsvik/Dev/svalmap/data/source/Menu items'));
+app.use('/flags', express.static(dataSource('flag-icons')));
+app.use('/flag-icons', express.static(dataSource('flag-icons')));
+app.use('/markers', express.static(dataSource('Mapmarkers')));
+app.use('/menu', express.static(dataSource('Menu items')));
 const indexHtml = `<!doctype html>
 <html>
 <head>
@@ -1009,7 +2417,7 @@ const indexHtml = `<!doctype html>
   <div id="drawer" class="drawer open">
     <div class="panel">
       <div class="header"><span class="title">Maplayers</span> <button id="collapse-btn" title="Collapse">⮜</button></div>
-      <div class="disclaimer">NOTE: This map shows all registered vessels inside the Svalbard Fisheries Protection Zone except fishing vessels under 15 meters in length and recreational vessels under 45 meters in length. Inside The Norwegian and Jan Mayen EEZs only Russian vessels, shadow fleet vessels, sanctioned vessels, and military/law enforcement vessels are displayed.</div>
+      <div class="disclaimer">NOTE: This map shows all registered vessels inside the Svalbard Fisheries Protection Zone except fishing vessels under 15 meters in length and recreational vessels under 45 meters in length. Across the rest of the North Atlantic north of 54°N (including the Norwegian and Jan Mayen EEZs) only Russian vessels, Russian research vessels, shadow fleet vessels, sanctioned vessels, and military/law enforcement vessels are displayed. Live AIS via AISStream + BarentsWatch.</div>
       <div class="section">
         <div class="item"><div class="label">Economic area</div><button id="ea-toggle" style="background:transparent;border:0;color:#e2e8f0;cursor:pointer">Details</button><div class="spacer"></div><img class="menu-icon" src="/menu/EEZs.svg" alt="EEZ"><label></label></div>
         <div id="ea-group" class="group" style="display:block">
@@ -1046,14 +2454,15 @@ const indexHtml = `<!doctype html>
       <div class="item"><img class="legend-icon shadow" src="/markers/Circles/shadowtriangle.svg" alt="shadow"/>Russian shadow fleet vessel</div>
       <div class="item"><img class="legend-icon" src="/markers/Circles/Sanksjon.svg" alt="sanction"/>Sanctioned / flagged vessel</div>
               <div class="item"><img class="legend-icon" src="/markers/Circles/Militarycircle.svg" alt="military"/>Military vessel / Law enforcement</div>
-    </div>
-    <div class="row">
-      <div class="item"><span class="swatch norway"></span>Norway</div>
-      <div class="item"><span class="swatch russia"></span>Russia</div>
-      <div class="item"><span class="swatch eu"></span>EU</div>
-      <div class="item"><span class="swatch china"></span>China</div>
-      <div class="item"><span class="swatch rest"></span>Rest of world</div>
-    </div>
+              <div class="item"><img class="legend-icon" src="/markers/Circles/Researchcircle.svg" alt="research"/>Russian research vessel</div>
+            </div>
+            <div class="row">
+              <div class="item"><span class="swatch norway"></span>Norway</div>
+              <div class="item"><span class="swatch russia"></span>Russia</div>
+              <div class="item"><span class="swatch eu"></span>EU</div>
+              <div class="item"><span class="swatch china"></span>China</div>
+              <div class="item"><span class="swatch rest"></span>Rest of world</div>
+            </div>
   </div>
   <script>
   const styleUrl = ${JSON.stringify(process.env.MAP_STYLE || '/styles/svalmap-dark.json')};
@@ -1143,8 +2552,12 @@ const indexHtml = `<!doctype html>
     if(!Array.isArray(rows) || rows.length===0){
       rows = await fetch('/api/positions?since=1440&limit=8000').then(r=>r.json());
     }
-    function mmsiCategory(m, shipType){
+    function mmsiCategory(m, shipType, imo){
       const s=String(m||''); const mid=parseInt(s.slice(0,3));
+      const researchMmsi = new Set(['273454710','273412710','273413400','273450600','273411400','273418070','273454600','273414400','273452600','273359440','273439220','273211700','273450550','273458500','273295970','273546520']);
+      const researchImo = new Set(['8211150','8519837','8507731','8408985','7811018','8211174','8409032','8507729','8407010','9548536','7740477','8607048','7518202','8010348','9884198']);
+      const imoStr = String(imo||'').replace(/\\D/g,'');
+      if(researchMmsi.has(s) || (imoStr && researchImo.has(imoStr))) return 'research';
       // Check if it's a military vessel or law enforcement first
       if(shipType === 35 || shipType === 'Military ops' || shipType === 55 || shipType === 'Law enforcement') return 'military';
       if([257,258,259].includes(mid)) return 'norway';
@@ -1175,7 +2588,7 @@ const indexHtml = `<!doctype html>
     function headerTextColor(cat){ return cat==='rest' ? '#111' : '#fff'; }
     const features = rows.map(r=>{
       const ts = (r.timestamp && (r.timestamp.value || r.timestamp)) || '';
-      const cat = mmsiCategory(r.mmsi, r.shipType);
+      const cat = mmsiCategory(r.mmsi, r.shipType, r.imo);
       const name = r.vessel_name || '';
       return { type:'Feature', geometry:{ type:'Point', coordinates:[r.lon,r.lat] }, properties:{ mmsi:r.mmsi, name:name, category:cat, label:(name||('MMSI '+r.mmsi)), timestamp: ts, speed: r.speed || 0, heading: r.heading, course: r.course, status: r.status, destination: r.destination || null, eta: r.eta || null, imo: r.imo || null, shipType: r.shipType || null, sanctioned: r.sanctioned === true, shadowfleet: r.shadowfleet === true, military: cat === 'military' } };
     });
@@ -1187,7 +2600,7 @@ const indexHtml = `<!doctype html>
     } else {
       const hoverPopup = new maplibregl.Popup({ closeButton:false, closeOnClick:false });
       // Initial GFW load (default layers hidden)
-      loadGfwOverlays(168);
+      loadGfwOverlays(720);
       
 
       map.addSource('projection', { type:'geojson', data:{ type:'FeatureCollection', features: [] } });
@@ -1195,6 +2608,7 @@ const indexHtml = `<!doctype html>
       let activeSidebarMmsi = null;
       function iconForCategoryCircle(){
         return [ 'case',
+          ['==',['get','category'],'research'],'Researchcircle',
           ['==',['get','category'],'military'],'Militarycircle',
           ['==',['get','category'],'norway'],'Norwaycircle',
           ['==',['get','category'],'russia'],'Russiacircle',
@@ -1204,6 +2618,7 @@ const indexHtml = `<!doctype html>
       }
       function iconForCategoryTriangle(){
         return [ 'case',
+          ['==',['get','category'],'research'],'Researchtriangle',
           ['==',['get','category'],'military'],'Militarytriangle',
           ['==',['get','category'],'norway'],'Norwaytriangle',
           ['==',['get','category'],'russia'],'Russiatriangle',
@@ -1223,12 +2638,14 @@ const indexHtml = `<!doctype html>
         loadIcon('Sanksjon','/markers/Circles/Sanksjon.svg'),
         loadIcon('ShadowTriangle','/markers/Circles/shadowtriangle.svg'),
         loadIcon('Militarycircle','/markers/Circles/Militarycircle.svg'),
+        loadIcon('Researchcircle','/markers/Circles/Researchcircle.svg'),
         loadIcon('Norwaytriangle','/markers/Countries/Norwaytriangle.svg'),
         loadIcon('Russiatriangle','/markers/Countries/Russiatriangle.svg'),
         loadIcon('EUtriangle','/markers/Countries/EUtriangle.svg'),
         loadIcon('Chinatriangle','/markers/Countries/Chinatriangle.svg'),
         loadIcon('Unknowntriangle','/markers/Countries/Unknowntriangle.svg'),
-        loadIcon('Militarytriangle','/markers/Countries/Militarytriangle.svg')
+        loadIcon('Militarytriangle','/markers/Countries/Militarytriangle.svg'),
+        loadIcon('Researchtriangle','/markers/Countries/Researchtriangle.svg')
       ]);
       // Add empty sources for GFW overlays
       map.addSource('gfw-events', { type:'geojson', data:{ type:'FeatureCollection', features: [] } });
@@ -1281,7 +2698,7 @@ const indexHtml = `<!doctype html>
       try{ map.moveLayer('shadow-indicator'); }catch(e){}
       try{ map.moveLayer('sanction-indicator'); }catch(e){}
       try{ map.moveLayer('military-indicator'); }catch(e){}
-      function getHeaderColorByCat(cat){ if(cat==='military') return '#326212'; if(cat==='norway') return '#ff4040'; if(cat==='russia') return '#7dacff'; if(cat==='eu') return '#2b2bcc'; if(cat==='china') return '#f2c403'; return '#f7f7f7'; }
+      function getHeaderColorByCat(cat){ if(cat==='research') return '#d946ef'; if(cat==='military') return '#326212'; if(cat==='norway') return '#ff4040'; if(cat==='russia') return '#7dacff'; if(cat==='eu') return '#2b2bcc'; if(cat==='china') return '#f2c403'; return '#f7f7f7'; }
       function headerTextColor(cat){ return (getHeaderColorByCat(cat).toLowerCase()==='#f7f7f7') ? '#333' : '#fff'; }
       async function loadGfwOverlays(rangeHours){
         try {
@@ -1638,10 +3055,32 @@ app.use(express.static(publicDir));
 app.listen(PORT, () => {
   console.log(`SvalMap server on http://localhost:${PORT}`);
   console.log(`[gfw] base=${GFW_API_BASE} token=${GFW_API_TOKEN ? 'configured' : 'MISSING'}`);
+  startAisStreamClient();
+  console.log(
+    `[aisstream] key=${process.env.AISSTREAM_API_KEY ? 'configured' : 'MISSING'} bbox=N≥${NORTH_ATLANTIC_BBOX.minLat}`
+  );
+
+  // Daily ice-edge refresh (06:30) + startup if missing/stale (>36h)
+  cron.schedule('30 6 * * *', () => {
+    refreshIceEdge('daily-cron').catch((e) => console.warn('[ice-edge] cron failed', e));
+  });
+  {
+    const meta = readIceEdgeMeta();
+    const ageMs = meta?.generated_at ? Date.now() - Date.parse(meta.generated_at) : null;
+    const stale = ageMs == null || !Number.isFinite(ageMs) || ageMs > 36 * 3600e3;
+    if (stale) {
+      refreshIceEdge('startup').catch((e) => console.warn('[ice-edge] startup failed', e));
+    } else {
+      console.log(`[ice-edge] cache ok age=${Math.round((ageMs || 0) / 3600000)}h features=${meta?.feature_count}`);
+    }
+  }
 
   if (GFW_API_TOKEN) {
-    // Warm 7-day cache so UI toggles are instant after startup
-    loadGfwEvents(168, 100).catch((e) => console.warn('[gfw] warm cache failed', e?.message || e));
+    // Warm caches so UI toggles are instant after startup
+    loadGfwEventsShared(720, 500).catch((e) => console.warn('[gfw] warm events failed', e?.message || e));
+    loadGfwDetectionsShared(SAR_LOOKBACK_HOURS).catch((e) =>
+      console.warn('[gfw] warm detections failed', e?.message || e)
+    );
   }
 
   // Weekly EU designated vessels refresh (Monday 06:00 Europe/Oslo-ish via server local TZ)
@@ -1666,6 +3105,17 @@ app.listen(PORT, () => {
     maybeRefreshSanctions('weekly-cron').catch((e) => console.warn('[sanctions] cron failed', e));
   });
   maybeRefreshSanctions('startup').catch((e) => console.warn('[sanctions] startup refresh failed', e));
+
+  // File-backed area alerts — runs without an open browser (email if SMTP configured)
+  startAlertWatcher(async () => {
+    const list = await getLivePositionsList();
+    return list.map((v) => ({
+      mmsi: String(v.mmsi),
+      lon: Number(v.lon),
+      lat: Number(v.lat),
+      vessel_name: v.vessel_name || null,
+    }));
+  }, 30_000);
 });
 
 

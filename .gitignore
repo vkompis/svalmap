@@ -18,6 +18,10 @@ env.sh
 *.pem
 *.p12
 
+# Local Python venvs (Copernicus Marine toolbox)
+**/.venv*/
+**/venv/
+
 # Local credential notes (contain API tokens)
 **/global fishing watch token.rtf
 **/Barentswatch*.rtf

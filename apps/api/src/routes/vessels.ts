@@ -2,14 +2,21 @@ import { Router } from 'express';
 import axios from 'axios';
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
 import { featureCollection, point, polygon } from '@turf/helpers';
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync, readdirSync } from 'fs';
 import path from 'path';
 
 const router = Router();
 
-// Paths
-const AOI_BASE_PATH = '/Users/vegardhalkjelsvik/Dev/svalmap/data/source/Proximity markers/AOI';
-const PROXIMITY_BASE_PATH = '/Users/vegardhalkjelsvik/Dev/svalmap/data/source/Proximity markers';
+const REPO_ROOT = process.env.SVALMAP_ROOT
+  ? path.resolve(process.env.SVALMAP_ROOT)
+  : path.resolve(__dirname, '../../../..');
+const AOI_BASE_PATH = path.join(REPO_ROOT, 'data/source/Proximity markers/AOI');
+const PROXIMITY_BASE_PATH = path.join(REPO_ROOT, 'data/source/Proximity markers');
+const SANCTIONS_DIR = path.join(REPO_ROOT, 'data/cache/sanctions');
+const SHADOW_CSV = path.join(REPO_ROOT, 'data/source/shadowfleet.csv');
+const SHADOW_CSV2 = path.join(REPO_ROOT, 'data/source/shadowfleet2.csv');
+const EU_DESIGNATED = path.join(REPO_ROOT, 'data/source/eu-designated-vessels.csv');
+const SANCTION_LIST = path.join(REPO_ROOT, 'data/source/Sanctionlist.CSV');
 
 function loadGeoJSON(file: string): any {
   const data = JSON.parse(readFileSync(file, 'utf-8'));
@@ -68,22 +75,41 @@ function loadSanctionsAndShadow(): { sanctions: Set<string>; shadow: Set<string>
   const sanctions = new Set<string>();
   const shadow = new Set<string>();
   try {
-    const eu = readFileSync('/Users/vegardhalkjelsvik/Dev/svalmap/data/cache/sanctions/eu_sanctions_1755219534809.txt', 'utf-8');
-    const ofac = readFileSync('/Users/vegardhalkjelsvik/Dev/svalmap/data/cache/sanctions/ofac_sdn_1755219539911.txt', 'utf-8');
-    for (const line of (eu + '\n' + ofac).split(/\r?\n/)) {
-      const t = line.trim();
-      if (!t) continue;
-      sanctions.add(t.toUpperCase());
+    if (existsSync(SANCTIONS_DIR)) {
+      for (const name of readdirSync(SANCTIONS_DIR)) {
+        if (!name.endsWith('.txt')) continue;
+        const body = readFileSync(path.join(SANCTIONS_DIR, name), 'utf-8');
+        for (const line of body.split(/\r?\n/)) {
+          const t = line.trim();
+          if (t) sanctions.add(t.toUpperCase());
+        }
+      }
     }
   } catch {}
-  try {
-    const csv = readFileSync('/Users/vegardhalkjelsvik/Dev/svalmap/data/source/shadowfleet.csv', 'utf-8');
-    for (const line of csv.split(/\r?\n/)) {
-      const [imo, mmsi] = line.split(',').map(s => s?.trim());
-      if (imo) shadow.add(imo.toUpperCase());
-      if (mmsi) shadow.add(mmsi);
-    }
-  } catch {}
+  for (const file of [SANCTION_LIST, EU_DESIGNATED]) {
+    try {
+      if (!existsSync(file)) continue;
+      const body = readFileSync(file, 'utf-8');
+      for (const line of body.split(/\r?\n/)) {
+        const m = line.match(/\b(\d{7,9})\b/);
+        if (m) sanctions.add(m[1]);
+        const mmsi = line.match(/\b(\d{9})\b/);
+        if (mmsi) sanctions.add(mmsi[1]);
+      }
+    } catch {}
+  }
+  for (const file of [SHADOW_CSV, SHADOW_CSV2]) {
+    try {
+      if (!existsSync(file)) continue;
+      const csv = readFileSync(file, 'utf-8');
+      for (const line of csv.split(/\r?\n/)) {
+        const parts = line.split(/[,;]/).map((s) => s?.trim());
+        for (const p of parts) {
+          if (p && /^\d{7,9}$/.test(p)) shadow.add(p.toUpperCase());
+        }
+      }
+    } catch {}
+  }
   return { sanctions, shadow };
 }
 

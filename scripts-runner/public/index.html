@@ -87,7 +87,7 @@
   <div id="drawer" class="drawer open">
     <div class="panel">
       <div class="header"><span class="title">Maplayers</span> <button id="collapse-btn" title="Collapse">⮜</button></div>
-      <div class="disclaimer">NOTE: This map shows all registered vessels inside the Svalbard Fisheries Protection Zone except fishing vessels under 15 meters in length and recreational vessels under 45 meters in length. Inside The Norwegian and Jan Mayen EEZs only Russian vessels, shadow fleet vessels, sanctioned vessels, and military/law enforcement vessels are displayed.</div>
+      <div class="disclaimer">NOTE: This map shows all registered vessels inside the Svalbard Fisheries Protection Zone except fishing vessels under 15 meters in length and recreational vessels under 45 meters in length. Across the rest of the North Atlantic north of 54°N (including the Norwegian and Jan Mayen EEZs) only Russian vessels, Russian research vessels, shadow fleet vessels, sanctioned vessels, and military/law enforcement vessels are displayed. Live AIS via AISStream + BarentsWatch.</div>
       <div class="section">
         <div class="item"><div class="label">Economic area</div><button id="ea-toggle" style="background:transparent;border:0;color:#e2e8f0;cursor:pointer">Details</button><div class="spacer"></div><img class="menu-icon" src="/menu/EEZs.svg" alt="EEZ"><label></label></div>
         <div id="ea-group" class="group" style="display:block">
@@ -124,14 +124,15 @@
       <div class="item"><img class="legend-icon shadow" src="/markers/Circles/shadowtriangle.svg" alt="shadow"/>Russian shadow fleet vessel</div>
       <div class="item"><img class="legend-icon" src="/markers/Circles/Sanksjon.svg" alt="sanction"/>Sanctioned / flagged vessel</div>
               <div class="item"><img class="legend-icon" src="/markers/Circles/Militarycircle.svg" alt="military"/>Military vessel / Law enforcement</div>
-    </div>
-    <div class="row">
-      <div class="item"><span class="swatch norway"></span>Norway</div>
-      <div class="item"><span class="swatch russia"></span>Russia</div>
-      <div class="item"><span class="swatch eu"></span>EU</div>
-      <div class="item"><span class="swatch china"></span>China</div>
-      <div class="item"><span class="swatch rest"></span>Rest of world</div>
-    </div>
+              <div class="item"><img class="legend-icon" src="/markers/Circles/Researchcircle.svg" alt="research"/>Russian research vessel</div>
+            </div>
+            <div class="row">
+              <div class="item"><span class="swatch norway"></span>Norway</div>
+              <div class="item"><span class="swatch russia"></span>Russia</div>
+              <div class="item"><span class="swatch eu"></span>EU</div>
+              <div class="item"><span class="swatch china"></span>China</div>
+              <div class="item"><span class="swatch rest"></span>Rest of world</div>
+            </div>
   </div>
   <script>
   const styleUrl = "/styles/svalmap-dark.json";
@@ -221,8 +222,12 @@
     if(!Array.isArray(rows) || rows.length===0){
       rows = await fetch('/api/positions?since=1440&limit=8000').then(r=>r.json());
     }
-    function mmsiCategory(m, shipType){
+    function mmsiCategory(m, shipType, imo){
       const s=String(m||''); const mid=parseInt(s.slice(0,3));
+      const researchMmsi = new Set(['273454710','273412710','273413400','273450600','273411400','273418070','273454600','273414400','273452600','273359440','273439220','273211700','273450550','273458500','273295970','273546520']);
+      const researchImo = new Set(['8211150','8519837','8507731','8408985','7811018','8211174','8409032','8507729','8407010','9548536','7740477','8607048','7518202','8010348','9884198']);
+      const imoStr = String(imo||'').replace(/\D/g,'');
+      if(researchMmsi.has(s) || (imoStr && researchImo.has(imoStr))) return 'research';
       // Check if it's a military vessel or law enforcement first
       if(shipType === 35 || shipType === 'Military ops' || shipType === 55 || shipType === 'Law enforcement') return 'military';
       if([257,258,259].includes(mid)) return 'norway';
@@ -253,7 +258,7 @@
     function headerTextColor(cat){ return cat==='rest' ? '#111' : '#fff'; }
     const features = rows.map(r=>{
       const ts = (r.timestamp && (r.timestamp.value || r.timestamp)) || '';
-      const cat = mmsiCategory(r.mmsi, r.shipType);
+      const cat = mmsiCategory(r.mmsi, r.shipType, r.imo);
       const name = r.vessel_name || '';
       return { type:'Feature', geometry:{ type:'Point', coordinates:[r.lon,r.lat] }, properties:{ mmsi:r.mmsi, name:name, category:cat, label:(name||('MMSI '+r.mmsi)), timestamp: ts, speed: r.speed || 0, heading: r.heading, course: r.course, status: r.status, destination: r.destination || null, eta: r.eta || null, imo: r.imo || null, shipType: r.shipType || null, sanctioned: r.sanctioned === true, shadowfleet: r.shadowfleet === true, military: cat === 'military' } };
     });
@@ -265,7 +270,7 @@
     } else {
       const hoverPopup = new maplibregl.Popup({ closeButton:false, closeOnClick:false });
       // Initial GFW load (default layers hidden)
-      loadGfwOverlays(168);
+      loadGfwOverlays(720);
       
 
       map.addSource('projection', { type:'geojson', data:{ type:'FeatureCollection', features: [] } });
@@ -273,6 +278,7 @@
       let activeSidebarMmsi = null;
       function iconForCategoryCircle(){
         return [ 'case',
+          ['==',['get','category'],'research'],'Researchcircle',
           ['==',['get','category'],'military'],'Militarycircle',
           ['==',['get','category'],'norway'],'Norwaycircle',
           ['==',['get','category'],'russia'],'Russiacircle',
@@ -282,6 +288,7 @@
       }
       function iconForCategoryTriangle(){
         return [ 'case',
+          ['==',['get','category'],'research'],'Researchtriangle',
           ['==',['get','category'],'military'],'Militarytriangle',
           ['==',['get','category'],'norway'],'Norwaytriangle',
           ['==',['get','category'],'russia'],'Russiatriangle',
@@ -301,12 +308,14 @@
         loadIcon('Sanksjon','/markers/Circles/Sanksjon.svg'),
         loadIcon('ShadowTriangle','/markers/Circles/shadowtriangle.svg'),
         loadIcon('Militarycircle','/markers/Circles/Militarycircle.svg'),
+        loadIcon('Researchcircle','/markers/Circles/Researchcircle.svg'),
         loadIcon('Norwaytriangle','/markers/Countries/Norwaytriangle.svg'),
         loadIcon('Russiatriangle','/markers/Countries/Russiatriangle.svg'),
         loadIcon('EUtriangle','/markers/Countries/EUtriangle.svg'),
         loadIcon('Chinatriangle','/markers/Countries/Chinatriangle.svg'),
         loadIcon('Unknowntriangle','/markers/Countries/Unknowntriangle.svg'),
-        loadIcon('Militarytriangle','/markers/Countries/Militarytriangle.svg')
+        loadIcon('Militarytriangle','/markers/Countries/Militarytriangle.svg'),
+        loadIcon('Researchtriangle','/markers/Countries/Researchtriangle.svg')
       ]);
       // Add empty sources for GFW overlays
       map.addSource('gfw-events', { type:'geojson', data:{ type:'FeatureCollection', features: [] } });
@@ -359,7 +368,7 @@
       try{ map.moveLayer('shadow-indicator'); }catch(e){}
       try{ map.moveLayer('sanction-indicator'); }catch(e){}
       try{ map.moveLayer('military-indicator'); }catch(e){}
-      function getHeaderColorByCat(cat){ if(cat==='military') return '#326212'; if(cat==='norway') return '#ff4040'; if(cat==='russia') return '#7dacff'; if(cat==='eu') return '#2b2bcc'; if(cat==='china') return '#f2c403'; return '#f7f7f7'; }
+      function getHeaderColorByCat(cat){ if(cat==='research') return '#d946ef'; if(cat==='military') return '#326212'; if(cat==='norway') return '#ff4040'; if(cat==='russia') return '#7dacff'; if(cat==='eu') return '#2b2bcc'; if(cat==='china') return '#f2c403'; return '#f7f7f7'; }
       function headerTextColor(cat){ return (getHeaderColorByCat(cat).toLowerCase()==='#f7f7f7') ? '#333' : '#fff'; }
       async function loadGfwOverlays(rangeHours){
         try {

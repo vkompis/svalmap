@@ -17,7 +17,9 @@ export const OPENSANCTIONS_SEARCH_URL =
 export const OPENSANCTIONS_MARITIME_CSV_URL =
   'https://data.opensanctions.org/datasets/latest/maritime/maritime.csv';
 
-const DATA_DIR = '/Users/vegardhalkjelsvik/Dev/svalmap/data/source';
+import { dataSource } from './paths';
+
+const DATA_DIR = process.env.DATA_DIR || dataSource();
 export const EU_DESIGNATED_CSV = path.join(DATA_DIR, 'eu-designated-vessels.csv');
 export const EU_DESIGNATED_META = path.join(DATA_DIR, 'eu-designated-vessels.meta.json');
 export const OPENSANCTIONS_VESSELS_CSV = path.join(DATA_DIR, 'opensanctions-vessels.csv');

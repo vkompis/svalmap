@@ -8,7 +8,8 @@ type Props = {
 
 export default function RestrictedAreaLayer({ area }: Props) {
   const map = useMap();
-  const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL as string) || 'http://localhost:3001';
+  const apiBase =
+    (process.env.NEXT_PUBLIC_API_BASE_URL as string) || 'http://localhost:8787';
 
   useEffect(() => {
     const id = `aoi-${area}`;

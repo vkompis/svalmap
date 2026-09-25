@@ -5,39 +5,101 @@ import {
   VesselLayer,
   OverlayLayers,
   GfwLayers,
+  IncidentLayer,
+  AoiDrawLayer,
   type OverlayVisibility,
   type GfwVisibility,
   type VesselFeatureProps,
+  type GfwEventProps,
+  type VesselLayerStatus,
+  type CableFeatureProps,
+  type NavWarningProps,
+  type AlertPolygon,
+  type VesselFilterFlags,
 } from '@svalmap/ui';
 
 type Props = {
   mapStyle: string;
   attribution: string;
+  maptilerKey?: string;
   overlays: OverlayVisibility;
   gfw: GfwVisibility;
   shipsVisible: boolean;
+  selectedMmsi?: string | null;
+  vesselFilters?: VesselFilterFlags;
+  trackDays?: number;
+  drawingAoi?: boolean;
+  draftRing?: number[][];
+  alertPolygons?: { id: string; polygon: AlertPolygon; label?: string }[];
+  onDraftPoint?: (lon: number, lat: number) => void;
   onVesselSelect?: (vessel: VesselFeatureProps) => void;
+  onGfwEventSelect?: (event: GfwEventProps) => void;
+  onCableSelect?: (cable: CableFeatureProps) => void;
+  onNavWarningSelect?: (warning: NavWarningProps) => void;
+  onDeselect?: () => void;
+  onVesselStatus?: (status: VesselLayerStatus) => void;
+  onVesselsChange?: (vessels: VesselFeatureProps[]) => void;
 };
 
 export default function MapCanvas({
   mapStyle,
   attribution,
+  maptilerKey,
   overlays,
   gfw,
   shipsVisible,
+  selectedMmsi,
+  vesselFilters,
+  trackDays = 1,
+  drawingAoi = false,
+  draftRing = [],
+  alertPolygons = [],
+  onDraftPoint,
   onVesselSelect,
+  onGfwEventSelect,
+  onCableSelect,
+  onNavWarningSelect,
+  onDeselect,
+  onVesselStatus,
+  onVesselsChange,
 }: Props) {
   return (
     <MapContainer
-      center={{ latitude: 69, longitude: 12 }}
-      zoom={3.5}
+      center={{ latitude: 62, longitude: -15 }}
+      zoom={2.8}
       fitNorway
       mapStyle={mapStyle}
       attribution={attribution}
+      maptilerKey={maptilerKey}
     >
-      <OverlayLayers visibility={overlays} />
-      <VesselLayer visible={shipsVisible} onVesselSelect={onVesselSelect} />
-      <GfwLayers visibility={gfw} />
+      <OverlayLayers visibility={overlays} onCableSelect={onCableSelect} />
+      <IncidentLayer
+        showActive={overlays.navwarnings}
+        showRecent30d={overlays['navwarnings-30d']}
+        interactive={!drawingAoi}
+        onWarningSelect={drawingAoi ? undefined : onNavWarningSelect}
+      />
+      <VesselLayer
+        visible={shipsVisible && !drawingAoi}
+        interactive={!drawingAoi}
+        selectedMmsi={selectedMmsi}
+        filters={vesselFilters}
+        trackDays={trackDays}
+        onVesselSelect={drawingAoi ? undefined : onVesselSelect}
+        onDeselect={drawingAoi ? undefined : onDeselect}
+        onStatus={onVesselStatus}
+        onVesselsChange={onVesselsChange}
+      />
+      <GfwLayers
+        visibility={gfw}
+        onEventSelect={drawingAoi ? undefined : onGfwEventSelect}
+      />
+      <AoiDrawLayer
+        active={drawingAoi}
+        draftRing={draftRing}
+        polygons={alertPolygons}
+        onMapClick={onDraftPoint}
+      />
     </MapContainer>
   );
 }

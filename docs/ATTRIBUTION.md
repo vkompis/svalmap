@@ -41,11 +41,25 @@ This document provides proper attribution and credits for all data sources, thir
   - **Format**: Shapefile, GeoJSON
 
 #### Submarine Cable Routes
-- **Norwegian Communications Authority (Nkom)**
-  - **Data**: Submarine cable infrastructure routes
-  - **License**: Government data, freely available
-  - **Attribution**: "Cable routes: Norwegian Communications Authority"
-  - **Format**: Shapefile, GeoJSON
+- **Norwegian Communications Authority (Nkom) / GeoNorge**
+  - **Data**: Dense national telecom/power cable segments
+  - **License**: Government data
+  - **Attribution**: "Cable routes: Norwegian Communications Authority / GeoNorge"
+  - **Layer**: Undersea cables (Nkom / GeoNorge)
+
+- **TeleGeography Submarine Cable Map**
+  - **Data**: Named international cable systems landing in Norway (17 systems)
+  - **Source**: https://www.submarinecablemap.com/country/norway
+  - **License**: Historically CC BY-NC-SA (non-commercial); commercial use requires a TeleGeography license
+  - **Attribution**: "© TeleGeography Submarine Cable Map"
+  - **Layer**: Named cables — Submarine Cable Map (Norway)
+
+### Navigation warnings
+- **Norwegian Coastal Administration (Kystverket)**
+  - **API**: `https://api.kystverket.no/data/navigationwarnings/navareaxix/` and `.../coastal/`
+  - **Coverage**: Currently **active** NAVAREA XIX + coastal (NAVCO) warnings; filtered to those issued within the last 30 days
+  - **Note**: The public API does not provide a full cancelled/historical archive
+  - **Disclaimer**: Not a substitute for NAVTEX / SafetyNET / SafetyCast
 
 ### Vessel Registry Data
 - **Norwegian Maritime Authority (Sjøfartsdirektoratet)**

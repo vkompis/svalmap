@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="research-triangle" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12.48 10.9">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: #d946ef;
+      }
+    </style>
+  </defs>
+  <!-- Pointed diamond / kite for Russian research vessels (zoomed in) -->
+  <path class="cls-1" d="M6.24.2L12.28,5.45L6.24,10.7L.2,5.45Z"/>
+</svg>

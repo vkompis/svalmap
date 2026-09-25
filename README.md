@@ -5,115 +5,114 @@
 [![Next.js](https://img.shields.io/badge/Next.js-14-black.svg)](https://nextjs.org/)
 [![MapLibre](https://img.shields.io/badge/MapLibre-3.6-green.svg)](https://maplibre.org/)
 
-A comprehensive maritime monitoring system focused on the Svalbard EEZ and Barents Sea area. SvalMap provides real-time vessel tracking, incident detection, and security monitoring capabilities using modern web technologies and cloud infrastructure.
+A maritime monitoring map focused on the Svalbard Fisheries Protection Zone and the wider North Atlantic north of 54°N. Live AIS (AISStream + BarentsWatch), sanctions / shadow-fleet flags, ice edge, GFW events, and navigation warnings.
 
-## 🌊 Features
+## Features (live map)
 
-- **Real-time Vessel Tracking**: Monitor vessel positions with 5-minute update cadence
-- **Incident Detection**: Automated detection of proximity alerts, rendezvous, loitering, and sanctions violations
-- **Interactive Maps**: MapLibre-based mapping with real-time vessel visualization
-- **Security Monitoring**: Focus on military vessels, research activities, and restricted areas
-- **Cloud-Native**: Built on Google Cloud Platform with BigQuery GIS and Firestore
-- **Real-time Alerts**: Instant notifications for security incidents and suspicious activities
+- **Live vessel tracking**: AISStream WebSocket + BarentsWatch merge, polled by the UI every ~20s
+- **Display rules**: Broad traffic in the Svalbard FPZ; elsewhere RU / research / sanctions / shadow / military
+- **Interactive MapLibre map**: Category markers, heading triangles, fading labels, historic tracks (1–14 days via free BarentsWatch)
+- **Research tools**: vessel search, ship filters, watchlists + notes, citeable export packs, shareable `?mmsi=` deep links
+- **Overlays**: EEZ / FPZ, ice edge (Copernicus), cables, petroleum, NSM, firing ranges, ports, nav warnings (active / last 30 days)
+- **GFW events**: Loitering, encounters, AIS-off, port visits (RU / sanctioned / shadow filtered)
+- **Area alerts**: Client polling + file-backed server watcher (email if `SMTP_*` configured; free without email)
+- **Live heuristics**: Proximity / loiter among vessels of interest (no BigQuery required)
+- **Optional paid path**: `apps/jobs` + BigQuery detectors are **not** required for the live map
 
-## 🏗️ Architecture
+## Architecture (what actually runs)
+
+```
+apps/web          → Next.js map (default API http://localhost:8787)
+scripts-runner    → Production live API (AIS, tracks, GFW proxy, sanctions, ice edge, overlays)
+apps/api          → Legacy / parallel Express API on :3001 (areas, BQ-oriented routes)
+apps/jobs         → Optional BigQuery incident / analytics pipeline
+packages/ui       → MapLibre React layers shared by the web app
+```
+
+**Local map stack:** start `scripts-runner` on port **8787**, then `apps/web` on **3000**. Set `NEXT_PUBLIC_API_BASE_URL=http://localhost:8787`.
+
+Optional: `API_KEY` (require `X-API-Key`), `TLS_INSECURE=1` (only if TLS verification must be disabled), `SVALMAP_ROOT` / `DATA_DIR` for portable data paths.
+
+## Repository layout
 
 ```
 svalmap/
 ├── apps/
 │   ├── web/          # Next.js frontend with MapLibre integration
-│   ├── api/          # Express.js REST API backend
-│   └── jobs/         # Cloud Run background jobs for data processing
+│   ├── api/          # Express REST API (parallel / legacy)
+│   └── jobs/         # Background jobs for BigQuery analytics
+├── scripts-runner/   # Live AIS + overlays API used by the web map
 ├── packages/
 │   ├── types/        # Shared TypeScript interfaces
-│   ├── ui/           # Reusable React components
-│   └── config/       # Shared configuration and utilities
-├── sql/              # BigQuery SQL queries and schema
-└── docs/             # Comprehensive documentation
+│   ├── ui/           # Reusable React / MapLibre components
+│   └── config/       # Shared configuration
+├── data/source/      # GeoJSON overlays, sanctions CSVs, markers
+├── sql/              # BigQuery SQL
+└── docs/             # Architecture, security, deploy notes
 ```
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
 - Node.js 18+ and npm 9+
-- Google Cloud Platform account
-- Docker (for containerization)
+- AISStream / BarentsWatch / optional GFW + Copernicus credentials (see `.env`)
 
 ### Installation
 
-1. **Clone the repository**
+1. **Clone and install**
    ```bash
    git clone https://github.com/your-org/svalmap.git
    cd svalmap
-   ```
-
-2. **Install dependencies**
-   ```bash
    npm install
    ```
 
-3. **Set up environment variables**
+2. **Environment**
    ```bash
-   # Copy environment templates
    cp apps/web/.env.example apps/web/.env.local
-   cp apps/api/.env.example apps/api/.env.local
-   cp apps/jobs/.env.example apps/jobs/.env.local
-   
-   # Configure your environment variables
-   # See docs/DEPLOY.md for detailed configuration
+   # Configure AISSTREAM_API_KEY, BarentsWatch OAuth, GFW_API_TOKEN, etc. for scripts-runner
    ```
 
-4. **Start development servers**
+3. **Start the live stack**
    ```bash
-   # Start all applications in development mode
-   npm run dev
-   
-   # Or start individual applications
+   # Terminal 1 — live API
+   cd scripts-runner && npx tsx server.ts
+
+   # Terminal 2 — web map
    npm run dev --workspace=@svalmap/web
-   npm run dev --workspace=@svalmap/api
-   npm run dev --workspace=@svalmap/jobs
    ```
 
-5. **Access the applications**
+4. **Access**
    - **Web App**: http://localhost:3000
-   - **API**: http://localhost:3001
-   - **Jobs**: Running in background
+   - **Live API**: http://localhost:8787 (`/api/health`, `/api/live-positions`)
+   - **Legacy API** (optional): http://localhost:3001
 
-## 🗺️ Geographic Coverage
+## Geographic Coverage
 
-- **Primary AOI**: Svalbard Exclusive Economic Zone (EEZ)
-- **Extended Coverage**: Barents Sea region
-- **Focus Areas**: 
-  - Military restricted zones
-  - Submarine cable infrastructure
-  - Research vessel activities
-  - Commercial shipping lanes
+- **Primary**: Svalbard Fisheries Protection Zone — most AIS traffic (with length filters for small fishing / recreational)
+- **Extended**: North Atlantic ≥54°N — Russian, research, sanctioned, shadow fleet, and military / LE vessels
+- **Context layers**: EEZ boundaries, undersea cables, petroleum, NSM areas, ice edge, Kystverket nav warnings
 
-## 🔧 Technology Stack
+## Technology Stack
 
 ### Frontend
 - **Next.js 14**: React framework with App Router
 - **TypeScript**: Type-safe development
 - **MapLibre GL JS**: Open-source mapping library
-- **Tailwind CSS**: Utility-first CSS framework
+- **Tailwind CSS**: Utility classes (map chrome is mostly custom CSS)
 
-### Backend
-- **Node.js**: JavaScript runtime
-- **Express.js**: Web framework
-- **TypeScript**: Type-safe development
-- **Zod**: Schema validation
+### Live backend (`scripts-runner`)
+- **Express** + in-memory AIS / sanctions caches
+- **AISStream** WebSocket + **BarentsWatch** live / historic AIS
+- **GFW** v3 gateway proxy
+- **Copernicus / OSI SAF** ice edge (Python toolbox)
 
-### Database
-- **BigQuery GIS**: Spatial data storage and analytics
-- **Firestore**: Real-time document database
-- **Cloud Storage**: Map tile hosting
+### Optional / parallel
+- **apps/api** + **apps/jobs**: BigQuery GIS, Firestore-oriented incident pipeline (not required for the map UI)
 
 ### Infrastructure
-- **Google Cloud Platform**: Cloud infrastructure
-- **Cloud Run**: Serverless containers
-- **BigQuery**: Data warehouse
-- **Firestore**: NoSQL database
+- Google Cloud Platform / Cloud Run / BigQuery (for the jobs path)
+- Local static GeoJSON under `data/source/`
 
 ### Development Tools
 - **Turbo**: Monorepo build system
@@ -122,7 +121,7 @@ svalmap/
 - **Vitest**: Unit testing
 - **Playwright**: E2E testing
 
-## 📊 Data Sources
+## Data Sources
 
 - **AIS Data**: Real-time vessel positions from Norwegian Coastal Administration
 - **Military Vessel MMSI**: Norwegian Armed Forces vessel identifiers
@@ -130,7 +129,7 @@ svalmap/
 - **Cable Routes**: Svalbard submarine cable infrastructure
 - **Sanctions**: Norwegian and EU sanctions lists
 
-## 🔒 Security Features
+## Security Features
 
 - **Incident Detection**: Proximity alerts, rendezvous detection, loitering identification
 - **Sanctions Monitoring**: Vessel blacklist checking and alerting
@@ -139,14 +138,14 @@ svalmap/
 - **Role-based Access Control**: Multi-level user permissions
 - **Audit Logging**: Comprehensive security event tracking
 
-## 📈 Monitoring & Analytics
+## Monitoring & Analytics
 
 - **Real-time Updates**: 5-minute cadence for vessel positions
 - **Incident Analytics**: Historical incident analysis and trends
 - **Performance Metrics**: System performance and usage statistics
 - **Cost Monitoring**: Cloud resource usage and cost optimization
 
-## 🚀 Deployment
+## Deployment
 
 ### Google Cloud Platform
 
@@ -181,7 +180,7 @@ docker run -p 3000:3000 svalmap-web:latest
 docker run -p 3001:3001 svalmap-api:latest
 ```
 
-## 🧪 Testing
+## Testing
 
 ### Run Tests
 
@@ -206,7 +205,7 @@ npm run lint
 - **E2E Tests**: Playwright browser automation
 - **Performance Tests**: Load testing and benchmarking
 
-## 📚 Documentation
+## Documentation
 
 - **[Architecture](docs/ARCHITECTURE.md)**: System design and architecture overview
 - **[Data Model](docs/DATA_MODEL.md)**: Database schema and data relationships
@@ -216,7 +215,7 @@ npm run lint
 - **[Cost Notes](docs/COST_NOTES.md)**: Cost structure and optimization strategies
 - **[Attribution](docs/ATTRIBUTION.md)**: Data sources and third-party attributions
 
-## 🤝 Contributing
+## Contributing
 
 ### Development Workflow
 
@@ -250,25 +249,25 @@ npm run lint
 - Update documentation as needed
 - Follow conventional commit messages
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - **Norwegian Coastal Administration** for AIS data
 - **Norwegian Armed Forces** for military vessel information
 - **OpenStreetMap contributors** for base map data
 - **MapLibre contributors** for open-source mapping library
 
-## 📞 Support
+## Support
 
 - **Documentation**: [docs/](docs/)
 - **Issues**: [GitHub Issues](https://github.com/your-org/svalmap/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/your-org/svalmap/discussions)
 - **Email**: support@svalmap.com
 
-## 🔮 Roadmap
+## Roadmap
 
 ### Phase 1 (Q1 2024)
 - [x] Core infrastructure setup

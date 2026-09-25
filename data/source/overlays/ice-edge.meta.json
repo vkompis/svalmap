@@ -1,0 +1,16 @@
+{
+  "source": "Copernicus Marine / OSI SAF",
+  "dataset_id": "osisaf_obs-si_glo_phy-siedge_nrt_nh-P1D",
+  "variable": "ice_edge",
+  "mode": "ice_edge_class",
+  "time": "2026-09-24",
+  "generated_at": "2026-09-25T14:51:05.359098+00:00",
+  "feature_count": 19,
+  "bbox": {
+    "minimum_longitude": -80.0,
+    "maximum_longitude": 45.0,
+    "minimum_latitude": 54.0,
+    "maximum_latitude": 85.0
+  },
+  "path": "/Users/vegardhalkjelsvik/Dev/svalmap/data/source/overlays/ice-edge.geojson"
+}

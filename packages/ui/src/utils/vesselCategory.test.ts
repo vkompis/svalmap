@@ -14,6 +14,7 @@ assert.equal(HEADER_COLORS.russia, '#7dacff');
 assert.equal(HEADER_COLORS.eu, '#2b2bcc');
 assert.equal(HEADER_COLORS.china, '#f2c403');
 assert.equal(HEADER_COLORS.military, '#2b6206');
+assert.equal(HEADER_COLORS.research, '#d946ef');
 assert.equal(HEADER_COLORS.rest, '#f7f7f7');
 
 assert.equal(headerTextColor('rest'), '#111');
@@ -27,6 +28,8 @@ assert.equal(mmsiCategory('366000001'), 'rest');
 assert.equal(mmsiCategory('259000001', 35), 'military');
 assert.equal(mmsiCategory('259000001', 'Military ops'), 'military');
 assert.equal(mmsiCategory('259000001', 55), 'military');
+assert.equal(mmsiCategory('273546520'), 'research'); // Yantar
+assert.equal(mmsiCategory('273359440', null, '9548536'), 'research'); // Tryoshnikov
 assert.ok(isMilitaryShipType('Law enforcement'));
 
 assert.equal(countryInfoFromMmsi('273123456').iso, 'ru');
