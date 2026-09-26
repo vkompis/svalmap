@@ -854,6 +854,87 @@ body {
   margin-top: 2px;
 }
 
+.sar-flag-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px 10px;
+  margin: 0 0 4px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.4);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+}
+.sar-flag-filter-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+.sar-flag-filter-hint {
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: #64748b;
+  font-size: 11px;
+}
+.sar-flag-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.sar-flag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px 3px 5px;
+  border-radius: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(30, 41, 59, 0.65);
+  color: #94a3b8;
+  font-size: 11px;
+  line-height: 1.2;
+  cursor: pointer;
+  user-select: none;
+}
+.sar-flag-chip input {
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  accent-color: #4ade80;
+}
+.sar-flag-chip.on {
+  border-color: rgba(74, 222, 128, 0.45);
+  background: rgba(22, 101, 52, 0.35);
+  color: #d1fae5;
+}
+.sar-flag-code {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+.sar-flag-label {
+  opacity: 0.85;
+}
+.sar-flag-clear {
+  align-self: flex-start;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #94a3b8;
+  font-size: 11px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.sar-flag-clear:hover {
+  color: #e2e8f0;
+}
+
 #legend .legend-section {
   font-size: 10px;
   font-weight: 600;

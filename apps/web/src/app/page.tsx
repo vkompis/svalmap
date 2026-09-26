@@ -24,6 +24,7 @@ import {
   WatchlistPanel,
   LiveIncidentsPanel,
   DEFAULT_VESSEL_FILTERS,
+  SAR_MATCHED_FLAG_OPTIONS,
   loadWatchlist,
   saveWatchlist,
   upsertWatchEntry,
@@ -62,7 +63,9 @@ const DEFAULT_GFW: GfwVisibility = {
   encounters: false,
   aisoff: true,
   port: false,
-  sar: true,
+  sarUnmatched: true,
+  sarMatched: true,
+  sarMatchedFlags: [],
   viirs: false,
 };
 
@@ -185,13 +188,27 @@ export default function HomePage() {
           });
         }
         if (p.gfw) {
+          const legacySar = (p.gfw as { sar?: boolean }).sar;
+          const rawFlags = (p.gfw as { sarMatchedFlags?: unknown }).sarMatchedFlags;
           setGfw({
             ...DEFAULT_GFW,
             ...p.gfw,
             viirs: false,
             // Free dark-vessel layers — on by default so AIS-off / SAR are visible
             aisoff: true,
-            sar: true,
+            sarUnmatched:
+              typeof p.gfw.sarUnmatched === 'boolean'
+                ? p.gfw.sarUnmatched
+                : legacySar !== false,
+            sarMatched:
+              typeof p.gfw.sarMatched === 'boolean'
+                ? p.gfw.sarMatched
+                : legacySar !== false,
+            sarMatchedFlags: Array.isArray(rawFlags)
+              ? rawFlags
+                  .map((f) => String(f || '').trim().toUpperCase())
+                  .filter((f) => /^[A-Z]{3}$/.test(f))
+              : [],
           });
         }
         if (typeof p.shipsVisible === 'boolean') setShipsVisible(p.shipsVisible);
@@ -282,8 +299,21 @@ export default function HomePage() {
   const setOverlay = (key: keyof OverlayVisibility, on: boolean) => {
     setOverlays((prev) => ({ ...prev, [key]: on }));
   };
-  const setGfwFlag = (key: keyof GfwVisibility, on: boolean) => {
+  const setGfwFlag = (
+    key: Exclude<keyof GfwVisibility, 'sarMatchedFlags'>,
+    on: boolean
+  ) => {
     setGfw((prev) => ({ ...prev, [key]: on }));
+  };
+
+  const toggleSarMatchedFlag = (code: string) => {
+    const c = code.toUpperCase();
+    setGfw((prev) => {
+      const cur = new Set(prev.sarMatchedFlags || []);
+      if (cur.has(c)) cur.delete(c);
+      else cur.add(c);
+      return { ...prev, sarMatchedFlags: [...cur] };
+    });
   };
 
   const closeDetail = useCallback(() => {
@@ -375,7 +405,12 @@ export default function HomePage() {
   }, [selection, apiBase]);
 
   const anyGfw =
-    gfw.loitering || gfw.encounters || gfw.aisoff || gfw.port || gfw.sar;
+    gfw.loitering ||
+      gfw.encounters ||
+      gfw.aisoff ||
+      gfw.port ||
+      gfw.sarUnmatched ||
+      gfw.sarMatched;
 
   const statusLabel = useMemo(() => {
     if (aisStatus.error) return 'AIS error';
@@ -767,20 +802,69 @@ export default function HomePage() {
               onChange={(on) => setGfwFlag('port', on)}
             />
             <LayerRow
-              label="SAR detections (dark / matched)"
-              checked={gfw.sar}
-              onChange={(on) => setGfwFlag('sar', on)}
+              label="SAR unmatched (possible dark)"
+              checked={gfw.sarUnmatched}
+              onChange={(on) => setGfwFlag('sarUnmatched', on)}
             />
-            {gfw.sar && (
+            <LayerRow
+              label="SAR matched to AIS"
+              checked={gfw.sarMatched}
+              onChange={(on) => setGfwFlag('sarMatched', on)}
+            />
+            {gfw.sarMatched && (
+              <div className="item sar-flag-filter">
+                <div className="sar-flag-filter-head">
+                  Flag filter
+                  <span className="sar-flag-filter-hint">
+                    {gfw.sarMatchedFlags.length === 0
+                      ? 'All countries'
+                      : `${gfw.sarMatchedFlags.length} selected`}
+                  </span>
+                </div>
+                <div className="sar-flag-grid">
+                  {SAR_MATCHED_FLAG_OPTIONS.map((opt) => {
+                    const on = gfw.sarMatchedFlags.includes(opt.code);
+                    return (
+                      <label key={opt.code} className={`sar-flag-chip ${on ? 'on' : ''}`}>
+                        <input
+                          type="checkbox"
+                          checked={on}
+                          onChange={() => toggleSarMatchedFlag(opt.code)}
+                        />
+                        <span className="sar-flag-code">{opt.code}</span>
+                        <span className="sar-flag-label">{opt.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                {gfw.sarMatchedFlags.length > 0 && (
+                  <button
+                    type="button"
+                    className="sar-flag-clear"
+                    onClick={() => setGfw((prev) => ({ ...prev, sarMatchedFlags: [] }))}
+                  >
+                    Clear flag filter
+                  </button>
+                )}
+              </div>
+            )}
+            {(gfw.sarUnmatched || gfw.sarMatched) && (
               <div className="item sar-key">
-                <span className="sar-key-row">
-                  <span className="swatch gfw-sar" />
-                  Amber — no AIS match (possible dark)
-                </span>
-                <span className="sar-key-row">
-                  <span className="swatch gfw-sar-matched" />
-                  Green — matched to AIS
-                </span>
+                {gfw.sarUnmatched && (
+                  <span className="sar-key-row">
+                    <span className="swatch gfw-sar" />
+                    Amber — no AIS match (possible dark)
+                  </span>
+                )}
+                {gfw.sarMatched && (
+                  <span className="sar-key-row">
+                    <span className="swatch gfw-sar-matched" />
+                    Green — matched to AIS
+                    {gfw.sarMatchedFlags.length > 0
+                      ? ` · ${gfw.sarMatchedFlags.join(', ')}`
+                      : ''}
+                  </span>
+                )}
                 <span className="sar-key-note">
                   Last 30 days · Norway EEZ, Jan Mayen EEZ &amp; Svalbard FPZ · lags ~5 days
                 </span>
@@ -1438,17 +1522,20 @@ export default function HomePage() {
                       Port visit
                     </div>
                   )}
-                  {gfw.sar && (
-                    <>
-                      <div className="item">
-                        <span className="swatch gfw-sar" />
-                        SAR · no AIS (dark?)
-                      </div>
-                      <div className="item">
-                        <span className="swatch gfw-sar-matched" />
-                        SAR · matched AIS
-                      </div>
-                    </>
+                  {gfw.sarUnmatched && (
+                    <div className="item">
+                      <span className="swatch gfw-sar" />
+                      SAR · no AIS (dark?)
+                    </div>
+                  )}
+                  {gfw.sarMatched && (
+                    <div className="item">
+                      <span className="swatch gfw-sar-matched" />
+                      SAR · matched AIS
+                      {gfw.sarMatchedFlags.length > 0
+                        ? ` (${gfw.sarMatchedFlags.join(', ')})`
+                        : ''}
+                    </div>
                   )}
                 </div>
               </>

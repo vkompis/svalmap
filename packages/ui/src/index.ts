@@ -16,6 +16,10 @@ export type { VesselCategory } from './utils/vesselCategory';
 export { default as OverlayLayers } from './components/OverlayLayers';
 export type { OverlayVisibility, CableFeatureProps } from './components/OverlayLayers';
 export { default as GfwLayers } from './components/GfwLayers';
+export {
+  SAR_MATCHED_FLAG_OPTIONS,
+  matchedSarLayerFilter,
+} from './components/GfwLayers';
 export type { GfwVisibility, GfwEventProps } from './components/GfwLayers';
 export { default as IncidentLayer } from './components/IncidentLayer';
 export type { NavWarningProps } from './components/IncidentLayer';

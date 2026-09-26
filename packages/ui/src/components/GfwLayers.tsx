@@ -8,9 +8,36 @@ export type GfwVisibility = {
   encounters: boolean;
   aisoff: boolean;
   port: boolean;
-  sar: boolean;
+  /** SAR with no AIS match (possible dark vessel) */
+  sarUnmatched: boolean;
+  /** SAR matched to an AIS vessel */
+  sarMatched: boolean;
+  /**
+   * ISO3 flag codes to keep for matched SAR (e.g. `RUS`, `NOR`).
+   * Empty = all countries. Applied client-side on already-loaded detections.
+   */
+  sarMatchedFlags: string[];
   viirs: boolean;
 };
+
+/** Common flags in the Barents / Svalbard SAR AOI. */
+export const SAR_MATCHED_FLAG_OPTIONS: { code: string; label: string }[] = [
+  { code: 'RUS', label: 'Russia' },
+  { code: 'NOR', label: 'Norway' },
+  { code: 'ISL', label: 'Iceland' },
+  { code: 'DNK', label: 'Denmark' },
+  { code: 'FRO', label: 'Faroe' },
+  { code: 'GBR', label: 'UK' },
+  { code: 'CHN', label: 'China' },
+  { code: 'DEU', label: 'Germany' },
+  { code: 'NLD', label: 'Netherlands' },
+  { code: 'POL', label: 'Poland' },
+  { code: 'ESP', label: 'Spain' },
+  { code: 'FRA', label: 'France' },
+  { code: 'PAN', label: 'Panama' },
+  { code: 'LBR', label: 'Liberia' },
+  { code: 'MHL', label: 'Marshall Is.' },
+];
 
 export type GfwEventProps = {
   subtype: string;
@@ -47,7 +74,7 @@ const EVENT_LAYER_IDS = [
   'gfw-port',
 ] as const;
 
-const DETECTION_LAYER_IDS = ['gfw-sar', 'gfw-viirs'] as const;
+const DETECTION_LAYER_IDS = ['gfw-sar-unmatched', 'gfw-sar-matched', 'gfw-viirs'] as const;
 const HIT_LAYER_ID = 'gfw-events-hit';
 const DET_HIT_LAYER_ID = 'gfw-detections-hit';
 const SANCTION_BADGE_ID = 'gfw-sanction-badge';
@@ -69,53 +96,8 @@ const NON_SHIP_MARKER_OPACITY = 0.5;
 const NON_SHIP_HALO_OPACITY = 0.15;
 
 /**
- * Match VesselLayer circle markers (other GFW events).
- * Ships use symbol icon-size on 64px atlas @ pixelRatio 2 → visual diameter ≈ icon-size * 32.
- * Circle radius ≈ icon-size * 16.
- * Vessel circleSize: zoom 2→0.16, 4→0.26, 6→0.4, 8→0.55
- */
-const SHIP_MATCH_RADIUS: any = [
-  'interpolate',
-  ['linear'],
-  ['zoom'],
-  2,
-  2.6,
-  4,
-  4.2,
-  6,
-  6.4,
-  8,
-  8.8,
-  10,
-  10.5,
-];
-/** Same stops as ships-hit */
-const SHIP_MATCH_HIT_RADIUS: any = [
-  'interpolate',
-  ['linear'],
-  ['zoom'],
-  2,
-  10,
-  7,
-  16,
-  10,
-  20,
-];
-const SHIP_MATCH_STROKE: any = [
-  'interpolate',
-  ['linear'],
-  ['zoom'],
-  2,
-  1,
-  6,
-  1.25,
-  10,
-  1.5,
-];
-
-/**
- * AIS-off + SAR: Shipatlas-style pin dots when zoomed out (tiny), then ease up when zooming in.
- * ~half ship size at overview so dense coverage stays readable.
+ * AIS-off + SAR + GFW events: Shipatlas-style pin dots when zoomed out (tiny),
+ * then ease up when zooming in.
  */
 const DETECTION_RADIUS: any = [
   'interpolate',
@@ -183,8 +165,8 @@ const DET_HIT_RADIUS = DETECTION_HIT_RADIUS;
 const AIS_OFF_CIRCLE_RADIUS = DETECTION_RADIUS;
 const AIS_OFF_HALO_RADIUS = DETECTION_HALO_RADIUS;
 const AIS_OFF_STROKE_WIDTH = DETECTION_STROKE;
-const EVENT_ZOOM_RADIUS = SHIP_MATCH_RADIUS;
-const EVENT_HIT_ZOOM_RADIUS = SHIP_MATCH_HIT_RADIUS;
+const EVENT_ZOOM_RADIUS = DETECTION_RADIUS;
+const EVENT_HIT_ZOOM_RADIUS = DETECTION_HIT_RADIUS;
 
 async function loadBadgeIcon(
   map: {
@@ -276,6 +258,41 @@ function setVis(
   }
 }
 
+function normalizeSarMatchedFlags(flags: string[] | undefined | null): string[] {
+  if (!Array.isArray(flags) || flags.length === 0) return [];
+  return [
+    ...new Set(
+      flags
+        .map((f) => String(f || '').trim().toUpperCase())
+        .filter((f) => /^[A-Z]{3}$/.test(f))
+    ),
+  ];
+}
+
+/** MapLibre filter for matched SAR points (subtype + optional flag allow-list). */
+export function matchedSarLayerFilter(flags: string[] | undefined | null): any {
+  const allow = normalizeSarMatchedFlags(flags);
+  const base: any = ['==', ['get', 'subtype'], 'sar_matched'];
+  if (allow.length === 0) return base;
+  return ['all', base, ['in', ['get', 'flag'], ['literal', allow]]];
+}
+
+function detectionHitFilter(visibility: GfwVisibility): any {
+  const clauses: any[] = [];
+  if (visibility.sarUnmatched) {
+    clauses.push(['==', ['get', 'subtype'], 'sar']);
+  }
+  if (visibility.sarMatched) {
+    clauses.push(matchedSarLayerFilter(visibility.sarMatchedFlags));
+  }
+  if (visibility.viirs) {
+    clauses.push(['==', ['get', 'subtype'], 'viirs']);
+  }
+  if (clauses.length === 0) return ['==', ['get', 'subtype'], '__none__'];
+  if (clauses.length === 1) return clauses[0];
+  return ['any', ...clauses];
+}
+
 function applyVisibility(
   map: {
     getLayer: (id: string) => unknown;
@@ -290,19 +307,29 @@ function applyVisibility(
   setVis(map, 'gfw-aisoff-halo', visibility.aisoff);
   setVis(map, 'gfw-aisoff', visibility.aisoff);
   setVis(map, 'gfw-port', visibility.port);
-  setVis(map, 'gfw-sar', visibility.sar);
+  setVis(map, 'gfw-sar-unmatched', visibility.sarUnmatched);
+  setVis(map, 'gfw-sar-matched', visibility.sarMatched);
   setVis(map, 'gfw-viirs', visibility.viirs);
+
+  if (map.getLayer('gfw-sar-matched') && map.setFilter) {
+    map.setFilter('gfw-sar-matched', matchedSarLayerFilter(visibility.sarMatchedFlags));
+  }
 
   const anyEvent =
     visibility.loitering ||
     visibility.encounters ||
     visibility.aisoff ||
     visibility.port;
-  const anyDet = visibility.sar || visibility.viirs;
+  const anyDet = visibility.sarUnmatched || visibility.sarMatched || visibility.viirs;
   setVis(map, HIT_LAYER_ID, anyEvent);
   setVis(map, DET_HIT_LAYER_ID, anyDet);
   setVis(map, SANCTION_BADGE_ID, anyEvent);
   setVis(map, SHADOW_BADGE_ID, anyEvent);
+
+  // Hit layer only receives currently visible detection subtypes (+ flag filter)
+  if (map.getLayer(DET_HIT_LAYER_ID) && map.setFilter) {
+    map.setFilter(DET_HIT_LAYER_ID, detectionHitFilter(visibility));
+  }
 
   const subtypeFilter = eventSubtypeFilter(visibility);
   if (map.getLayer(SANCTION_BADGE_ID) && map.setFilter) {
@@ -481,7 +508,7 @@ function mapDetectionsToFc(detections: any[]): GfwFc {
             intentionalDisabling: 0,
             matched: matched ? 1 : 0,
             note: d.note || '',
-            flag: d.flag || '',
+            flag: d.flag ? String(d.flag).toUpperCase() : '',
             lon,
             lat,
           },
@@ -748,26 +775,34 @@ export default function GfwLayers({
           data: sharedDetFc,
         });
       }
+      // Remove legacy combined SAR layer if present (from earlier builds)
+      try {
+        if (map.getLayer('gfw-sar')) map.removeLayer('gfw-sar');
+      } catch {
+        /* ignore */
+      }
       upsertCircle({
-        id: 'gfw-sar',
+        id: 'gfw-sar-unmatched',
         source: 'gfw-detections',
-        filter: ['in', ['get', 'subtype'], ['literal', ['sar', 'sar_matched']]],
+        filter: ['==', ['get', 'subtype'], 'sar'],
         paint: {
           'circle-radius': SAR_CIRCLE_RADIUS,
-          // Strong contrast: amber = no AIS (possible dark), cyan = matched to AIS
-          'circle-color': [
-            'case',
-            ['==', ['get', 'matched'], 1],
-            '#4ade80',
-            '#f59e0b',
-          ],
+          'circle-color': '#f59e0b',
           'circle-stroke-width': SAR_STROKE_WIDTH,
-          'circle-stroke-color': [
-            'case',
-            ['==', ['get', 'matched'], 1],
-            '#bbf7d0',
-            '#fde68a',
-          ],
+          'circle-stroke-color': '#fde68a',
+          'circle-opacity': NON_SHIP_MARKER_OPACITY,
+          'circle-stroke-opacity': NON_SHIP_MARKER_OPACITY,
+        },
+      });
+      upsertCircle({
+        id: 'gfw-sar-matched',
+        source: 'gfw-detections',
+        filter: ['==', ['get', 'subtype'], 'sar_matched'],
+        paint: {
+          'circle-radius': SAR_CIRCLE_RADIUS,
+          'circle-color': '#4ade80',
+          'circle-stroke-width': SAR_STROKE_WIDTH,
+          'circle-stroke-color': '#bbf7d0',
           'circle-opacity': NON_SHIP_MARKER_OPACITY,
           'circle-stroke-opacity': NON_SHIP_MARKER_OPACITY,
         },
@@ -917,7 +952,9 @@ export default function GfwLayers({
           visibility.aisoff ||
           visibility.port) &&
         sharedEventsFc.features.length === 0;
-      const needDets = visibility.sar && sharedDetFc.features.length === 0;
+      const needDets =
+        (visibility.sarUnmatched || visibility.sarMatched) &&
+        sharedDetFc.features.length === 0;
       if (needEvents || needDets || visibility.viirs) {
         loadGfwShared(apiBase, hours, needDets || needEvents)
           .then(() => {
