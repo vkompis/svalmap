@@ -390,6 +390,8 @@ export default function VesselLayer({
         source: strOrNull(p.source),
         lon,
         lat,
+        sanctioned: Number(p.sanctioned) ? 1 : 0,
+        shadowfleet: Number(p.shadowfleet) ? 1 : 0,
       });
 
       if (!hoverPopup) {
@@ -423,9 +425,9 @@ export default function VesselLayer({
       ['linear'],
       ['zoom'],
       1,
-      2.025,
+      2.4,
       4.7,
-      2.025,
+      2.6,
       6.8,
       4.2,
     ];
@@ -485,8 +487,19 @@ export default function VesselLayer({
     const triangleOpacity: any = ['interpolate', ['linear'], ['zoom'], 6.8, 0, 7.5, 1];
     // Names start a bit after heading triangles, then fade in over ~1 zoom
     const labelOpacity: any = ['interpolate', ['linear'], ['zoom'], 7.5, 0, 8.5, 1];
-    // Sanction / shadow badges keep readable size at all zooms
-    const badgeSize: any = ['interpolate', ['linear'], ['zoom'], 2, 0.38, 5, 0.5, 8, 0.62];
+    // Sanction / shadow badges — 50% larger than base vessel markers for scanability
+    const badgeSize: any = [
+      'interpolate',
+      ['linear'],
+      ['zoom'],
+      2,
+      0.57,
+      5,
+      0.75,
+      8,
+      0.93,
+    ];
+    const badgeTranslate: any = [0, -24];
 
     function setLayersVisible(on: boolean) {
       const v = on ? 'visible' : 'none';
@@ -807,11 +820,11 @@ export default function VesselLayer({
       }
       if (map.getLayer('sanction-indicator')) {
         map.setLayoutProperty('sanction-indicator', 'icon-size', badgeSize);
-        map.setPaintProperty('sanction-indicator', 'icon-translate', [0, -16]);
+        map.setPaintProperty('sanction-indicator', 'icon-translate', badgeTranslate);
       }
       if (map.getLayer('shadow-indicator')) {
         map.setLayoutProperty('shadow-indicator', 'icon-size', badgeSize);
-        map.setPaintProperty('shadow-indicator', 'icon-translate', [0, -16]);
+        map.setPaintProperty('shadow-indicator', 'icon-translate', badgeTranslate);
       }
     }
 
@@ -934,7 +947,7 @@ export default function VesselLayer({
           },
           paint: {
             'icon-opacity': ['case', ['==', ['get', 'sanctioned'], 1], 1, 0],
-            'icon-translate': [0, -16],
+            'icon-translate': badgeTranslate,
             'icon-translate-anchor': 'viewport',
           },
         });
@@ -954,7 +967,7 @@ export default function VesselLayer({
           },
           paint: {
             'icon-opacity': ['case', ['==', ['get', 'shadowfleet'], 1], 1, 0],
-            'icon-translate': [0, -16],
+            'icon-translate': badgeTranslate,
             'icon-translate-anchor': 'viewport',
           },
         });
@@ -1134,7 +1147,13 @@ export default function VesselLayer({
 
     const start = () => {
       refresh();
-      if (!interval) interval = setInterval(refresh, 20 * 1000);
+      if (!interval) {
+        // Quick follow-up so BarentsWatch merge lands soon after AISStream-first paint
+        setTimeout(() => {
+          if (!destroyed) refresh();
+        }, 3000);
+        interval = setInterval(refresh, 20 * 1000);
+      }
     };
 
     start();

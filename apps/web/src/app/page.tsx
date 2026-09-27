@@ -530,7 +530,7 @@ export default function HomePage() {
       const t = new Date(aisStatus.lastUpdate);
       return `${aisStatus.vesselCount} vessels · ${t.toLocaleTimeString()}`;
     }
-    return 'Connecting…';
+    return 'Loading ships…';
   }, [aisStatus]);
 
   const freshnessHint = useMemo(() => {

@@ -219,37 +219,100 @@ async function ensureMilitaryLoaded(): Promise<void> {
   } catch {}
 }
 
+/** Shared BarentsWatch "latest combined" cache — avoids 15–30s blocking on every /api/live-positions. */
+const BW_LATEST_TTL_MS = 25_000;
+let BW_LATEST_CACHE: { list: any[]; fetchedAt: number } | null = null;
+let BW_LATEST_INFLIGHT: Promise<any[]> | null = null;
+
+function rebuildImoMapFromList(list: any[]): void {
+  if (!Array.isArray(list) || list.length === 0) return;
+  IMO_TO_MMSI_MAP.clear();
+  for (const v of list) {
+    const mmsi = String(v?.mmsi ?? v?.MMSI ?? '');
+    const imo = v?.imoNumber ?? v?.imo ?? v?.IMO ?? v?.properties?.imoNumber;
+    if (mmsi && imo && String(imo).match(/\b\d{7,9}\b/)) {
+      IMO_TO_MMSI_MAP.set(String(imo), mmsi);
+    }
+  }
+  IMO_MAP_CACHE_TS = Date.now();
+}
+
+function getBarentsWatchCached(): any[] | null {
+  if (!BW_LATEST_CACHE) return null;
+  if (Date.now() - BW_LATEST_CACHE.fetchedAt > BW_LATEST_TTL_MS * 4) return null; // hard stale
+  return BW_LATEST_CACHE.list;
+}
+
+async function fetchBarentsWatchLatest(opts?: {
+  force?: boolean;
+}): Promise<any[]> {
+  const now = Date.now();
+  if (
+    !opts?.force &&
+    BW_LATEST_CACHE &&
+    now - BW_LATEST_CACHE.fetchedAt < BW_LATEST_TTL_MS
+  ) {
+    return BW_LATEST_CACHE.list;
+  }
+  if (BW_LATEST_INFLIGHT) return BW_LATEST_INFLIGHT;
+
+  BW_LATEST_INFLIGHT = (async () => {
+    const token = await getBarentsWatchAccessToken();
+    if (!token) return BW_LATEST_CACHE?.list || [];
+    const agent = httpsAgent();
+    try {
+      let data: any;
+      try {
+        const r1 = await axios.get(
+          'https://live.ais.barentswatch.no/v1/latest/combined?modelType=Full&modelFormat=Json',
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            httpsAgent: agent,
+            timeout: 15000,
+          }
+        );
+        data = r1.data;
+      } catch {
+        const r2 = await axios.get(
+          'https://live.ais.barentswatch.no/v1/combined?modelType=Full&modelFormat=Json',
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            httpsAgent: agent,
+            timeout: 20000,
+          }
+        );
+        data = r2.data;
+      }
+      const list: any[] = Array.isArray(data)
+        ? data
+        : data?.vessels || data?.positions || [];
+      BW_LATEST_CACHE = { list, fetchedAt: Date.now() };
+      rebuildImoMapFromList(list);
+      return list;
+    } catch (e) {
+      console.warn(
+        '[barentswatch] latest fetch failed',
+        (e as any)?.message || String(e)
+      );
+      return BW_LATEST_CACHE?.list || [];
+    } finally {
+      BW_LATEST_INFLIGHT = null;
+    }
+  })();
+
+  return BW_LATEST_INFLIGHT;
+}
+
 async function ensureImoMapLoaded(): Promise<void> {
   const now = Date.now();
   if (now - IMO_MAP_CACHE_TS < 10 * 60 * 1000 && IMO_TO_MMSI_MAP.size > 0) return;
   try {
-    // Build IMO to MMSI mapping from current vessel data
-    const token = await getBarentsWatchAccessToken();
-    if (token) {
-      const agent = httpsAgent();
-      let data: any;
-      try {
-        const r1 = await axios.get('https://live.ais.barentswatch.no/v1/latest/combined?modelType=Full&modelFormat=Json', { headers: { Authorization: `Bearer ${token}` }, httpsAgent: agent, timeout: 15000 });
-        data = r1.data;
-      } catch {
-        const r2 = await axios.get('https://live.ais.barentswatch.no/v1/combined?modelType=Full&modelFormat=Json', { headers: { Authorization: `Bearer ${token}` }, httpsAgent: agent, timeout: 20000 });
-        data = r2.data;
-      }
-      
-      const list: any[] = Array.isArray(data) ? data : (data?.vessels || data?.positions || []);
-      IMO_TO_MMSI_MAP.clear();
-      
-      for (const v of list) {
-        const mmsi = String(v?.mmsi ?? v?.MMSI ?? '');
-        const imo = v?.imoNumber ?? v?.imo ?? v?.IMO ?? (v?.properties && v?.properties.imoNumber);
-        if (mmsi && imo && String(imo).match(/\b\d{7,9}\b/)) {
-          IMO_TO_MMSI_MAP.set(String(imo), mmsi);
-        }
-      }
-      
-      IMO_MAP_CACHE_TS = now;
-    }
-  } catch {}
+    // Reuse shared BW cache / single in-flight fetch (do not hit BW a second time)
+    const list = await fetchBarentsWatchLatest();
+    rebuildImoMapFromList(list);
+  } catch {
+    /* ignore */
+  }
 }
 
 // Local perimeter files
@@ -1028,8 +1091,30 @@ app.get('/api/positions', async (req, res) => {
 
 // Global Fishing Watch — real proxy is registered below (/api/gfw/events, /api/gfw/detections)
 
+const GEOM_BBOX = new WeakMap<object, [number, number, number, number]>();
+
+function geomBbox(geom: any): [number, number, number, number] | null {
+  if (!geom) return null;
+  const cached = GEOM_BBOX.get(geom);
+  if (cached) return cached;
+  try {
+    const b = turf.bbox({ type: 'Feature', properties: {}, geometry: geom } as any) as [
+      number,
+      number,
+      number,
+      number,
+    ];
+    GEOM_BBOX.set(geom, b);
+    return b;
+  } catch {
+    return null;
+  }
+}
+
 function pointInGeom(lon: number, lat: number, geom: any): boolean {
   if (!geom) return false;
+  const b = geomBbox(geom);
+  if (b && (lon < b[0] || lat < b[1] || lon > b[2] || lat > b[3])) return false;
   try {
     return turf.booleanPointInPolygon(turf.point([lon, lat]), {
       type: 'Feature',
@@ -1086,9 +1171,25 @@ function shouldIncludeVessel(opts: {
   lengthM: number | null;
 }): { include: boolean; inSvalbard: boolean } {
   const { lon, lat, mmsi, imo, shipType, lengthM } = opts;
-  const inSvalbard = pointInGeom(lon, lat, AOI_TURF_GEOMETRY);
-  const inNorwayEez = pointInGeom(lon, lat, NORWAY_TURF_GEOMETRY);
-  const inJanMayenEez = pointInGeom(lon, lat, JANMAYEN_TURF_GEOMETRY);
+
+  // Cheap bbox gate before expensive EEZ polygon tests
+  const maybeSvalbard = (() => {
+    const b = geomBbox(AOI_TURF_GEOMETRY);
+    return !b || (lon >= b[0] && lat >= b[1] && lon <= b[2] && lat <= b[3]);
+  })();
+  const maybeNorway = (() => {
+    const b = geomBbox(NORWAY_TURF_GEOMETRY);
+    return !b || (lon >= b[0] && lat >= b[1] && lon <= b[2] && lat <= b[3]);
+  })();
+  const maybeJanMayen = (() => {
+    const b = geomBbox(JANMAYEN_TURF_GEOMETRY);
+    return !b || (lon >= b[0] && lat >= b[1] && lon <= b[2] && lat <= b[3]);
+  })();
+
+  const inSvalbard = maybeSvalbard && pointInGeom(lon, lat, AOI_TURF_GEOMETRY);
+  const inNorwayEez = maybeNorway && pointInGeom(lon, lat, NORWAY_TURF_GEOMETRY);
+  const inJanMayenEez =
+    maybeJanMayen && pointInGeom(lon, lat, JANMAYEN_TURF_GEOMETRY);
   const inFullCoverageZone = inSvalbard || inNorwayEez || inJanMayenEez;
 
   if (inFullCoverageZone) {
@@ -1203,37 +1304,50 @@ function normalizeLiveVessel(input: {
   return populateFromStaticCache(mmsiStr, normalized);
 }
 
-async function fetchBarentsWatchLatest(): Promise<any[]> {
-  const token = await getBarentsWatchAccessToken();
-  if (!token) return [];
-  const agent = httpsAgent();
-  try {
-    const r1 = await axios.get(
-      'https://live.ais.barentswatch.no/v1/latest/combined?modelType=Full&modelFormat=Json',
-      { headers: { Authorization: `Bearer ${token}` }, httpsAgent: agent, timeout: 15000 }
-    );
-    const data = r1.data;
-    return Array.isArray(data) ? data : data?.vessels || data?.positions || [];
-  } catch {
-    try {
-      const r2 = await axios.get(
-        'https://live.ais.barentswatch.no/v1/combined?modelType=Full&modelFormat=Json',
-        { headers: { Authorization: `Bearer ${token}` }, httpsAgent: agent, timeout: 20000 }
-      );
-      const data = r2.data;
-      return Array.isArray(data) ? data : data?.vessels || data?.positions || [];
-    } catch {
-      return [];
-    }
+/** Live AIS merge used by UI, search, incidents, and alert watcher. */
+const LIVE_LIST_TTL_MS = 8_000;
+const LIVE_LIST_PARTIAL_TTL_MS = 1_500;
+let LIVE_LIST_CACHE: { list: any[]; fetchedAt: number; ttl: number } | null =
+  null;
+let LIVE_LIST_INFLIGHT: Promise<any[]> | null = null;
+
+async function getLivePositionsList(): Promise<any[]> {
+  const now = Date.now();
+  if (
+    LIVE_LIST_CACHE &&
+    now - LIVE_LIST_CACHE.fetchedAt < LIVE_LIST_CACHE.ttl
+  ) {
+    return LIVE_LIST_CACHE.list;
   }
+  if (LIVE_LIST_INFLIGHT) return LIVE_LIST_INFLIGHT;
+
+  LIVE_LIST_INFLIGHT = (async () => {
+    try {
+      const { list, partial } = await buildLivePositionsList();
+      LIVE_LIST_CACHE = {
+        list,
+        fetchedAt: Date.now(),
+        ttl: partial ? LIVE_LIST_PARTIAL_TTL_MS : LIVE_LIST_TTL_MS,
+      };
+      return list;
+    } finally {
+      LIVE_LIST_INFLIGHT = null;
+    }
+  })();
+  return LIVE_LIST_INFLIGHT;
 }
 
-/** Live AIS merge used by UI, search, incidents, and alert watcher. */
-async function getLivePositionsList(): Promise<any[]> {
-  await ensureSanctionedLoaded();
-  await ensureShadowLoaded();
-  await ensureMilitaryLoaded();
-  await ensureImoMapLoaded();
+async function buildLivePositionsList(): Promise<{
+  list: any[];
+  partial: boolean;
+}> {
+  await Promise.all([
+    ensureSanctionedLoaded(),
+    ensureShadowLoaded(),
+    ensureMilitaryLoaded(),
+  ]);
+  // IMO map is warmed from the shared BW cache; never block first paint on a second BW fetch
+  void ensureImoMapLoaded();
 
   const byMmsi = new Map<string, any>();
 
@@ -1259,7 +1373,22 @@ async function getLivePositionsList(): Promise<any[]> {
     if (normalized) byMmsi.set(normalized.mmsi, normalized);
   }
 
-  const bwList = await fetchBarentsWatchLatest();
+  // Prefer warm cache; if cold, wait briefly for BW so coastal/RU traffic is not missing
+  let bwList = getBarentsWatchCached();
+  let bwPartial = false;
+  if (!bwList) {
+    bwList = await Promise.race([
+      fetchBarentsWatchLatest(),
+      new Promise<any[]>((resolve) =>
+        setTimeout(() => resolve(getBarentsWatchCached() || []), 2500)
+      ),
+    ]);
+    if (!getBarentsWatchCached()) bwPartial = true;
+  } else if (Date.now() - (BW_LATEST_CACHE?.fetchedAt || 0) > BW_LATEST_TTL_MS) {
+    // Soft-expired: still use, refresh in background
+    void fetchBarentsWatchLatest();
+  }
+
   for (const v of bwList) {
     const lon =
       v?.lon ??
@@ -1325,7 +1454,7 @@ async function getLivePositionsList(): Promise<any[]> {
   }
 
   sweepStaticCache();
-  return Array.from(byMmsi.values());
+  return { list: Array.from(byMmsi.values()), partial: bwPartial };
 }
 
 app.get('/api/live-positions', async (_req, res) => {
@@ -3168,6 +3297,21 @@ app.listen(PORT, () => {
   console.log(
     `[aisstream] key=${process.env.AISSTREAM_API_KEY ? 'configured' : 'MISSING'} bbox=N≥${NORTH_ATLANTIC_BBOX.minLat}`
   );
+
+  // Warm BarentsWatch latest cache in background so first map load is not blocked 15–30s
+  fetchBarentsWatchLatest()
+    .then(async (list) => {
+      console.log(`[barentswatch] cache warmed vessels=${list.length}`);
+      // Pre-build merged live list so the first UI request is a cache hit
+      const merged = await getLivePositionsList();
+      console.log(`[live-positions] prebuilt vessels=${merged.length}`);
+    })
+    .catch((e) => console.warn('[barentswatch] warm failed', e));
+  setInterval(() => {
+    fetchBarentsWatchLatest({ force: true })
+      .then(() => getLivePositionsList())
+      .catch(() => undefined);
+  }, BW_LATEST_TTL_MS);
 
   // Daily ice-edge refresh (06:30) + startup if missing/stale (>36h)
   cron.schedule('30 6 * * *', () => {

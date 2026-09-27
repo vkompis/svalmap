@@ -19,7 +19,7 @@ export type FlagCountry = 'norway' | 'russia' | 'eu' | 'china' | 'rest';
 
 export const HEADER_COLORS: Record<VesselCategory, string> = {
   norway: '#ff4040',
-  russia: '#7dacff',
+  russia: '#4dd0ff',
   eu: '#2b2bcc',
   china: '#f2c403',
   military: '#2b6206', // matches Mapmarkers/Militarycircle.svg

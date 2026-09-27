@@ -76,7 +76,13 @@ export type VesselHoverInput = {
   source?: string | null;
   lon?: number | null;
   lat?: number | null;
+  sanctioned?: number | boolean | null;
+  shadowfleet?: number | boolean | null;
 };
+
+function isFlagOn(v: number | boolean | string | null | undefined): boolean {
+  return v === true || v === 1 || v === '1';
+}
 
 export function buildVesselHoverHtml(p: VesselHoverInput): string {
   const cat = (p.category as VesselCategory) || 'rest';
@@ -112,9 +118,23 @@ export function buildVesselHoverHtml(p: VesselHoverInput): string {
   const age = relativeAge(p.timestamp || null);
   const via = sourceLabel(p.source);
   const updatedBits = [age, via ? `via ${via}` : ''].filter(Boolean).join(' · ');
+  const sanctioned = isFlagOn(p.sanctioned);
+  const shadow = isFlagOn(p.shadowfleet);
 
   const markerBg =
     cat === 'rest' ? 'rgba(15,23,42,0.9)' : accent;
+
+  const badges =
+    (sanctioned
+      ? `<div class="ssh-badge ssh-badge-sanction">` +
+        `<img src="/markers/Circles/Sanksjon.svg" alt="" width="14" height="11" />` +
+        `<span>Sanctioned vessel</span></div>`
+      : '') +
+    (shadow
+      ? `<div class="ssh-badge ssh-badge-shadow">` +
+        `<img src="/markers/Circles/shadowtriangle.svg" alt="" width="14" height="11" />` +
+        `<span>Russian shadow fleet</span></div>`
+      : '');
 
   return (
     `<div class="svalmap-ship-hover">` +
@@ -131,6 +151,7 @@ export function buildVesselHoverHtml(p: VesselHoverInput): string {
     (type && p.mmsi ? `<span class="ssh-sep">·</span>` : '') +
     (p.mmsi ? `<span class="ssh-mmsi">${esc(p.mmsi)}</span>` : '') +
     `</div>` +
+    (badges ? `<div class="ssh-badges">${badges}</div>` : '') +
     `</div></div>` +
     `<div class="ssh-stats">` +
     `<div class="ssh-stat"><span class="ssh-k">Heading</span><span class="ssh-v">${esc(fmtDeg(heading, 0))}</span></div>` +
