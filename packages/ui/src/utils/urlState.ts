@@ -4,7 +4,7 @@ export type UrlMapState = {
   mmsi?: string | null;
   ships?: boolean;
   trackDays?: number;
-  filters?: string[]; // sanctioned,shadow,research,military,russian
+  filters?: string[]; // -norway,-eu,… and/or sanctioned,shadow
   navActive?: boolean;
   nav30d?: boolean;
 };

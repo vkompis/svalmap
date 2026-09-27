@@ -53,6 +53,9 @@ const STATIC_TYPES = new Set(['ShipStaticData', 'StaticDataReport']);
 
 const STALE_MS = 45 * 60 * 1000;
 const SWEEP_MS = 60 * 1000;
+/** Force reconnect if the socket looks open but no AIS traffic arrives. */
+const SILENCE_RECONNECT_MS = 90 * 1000;
+const WATCHDOG_MS = 15 * 1000;
 
 const vesselsByMmsi = new Map<string, AisStreamVessel>();
 
@@ -60,10 +63,13 @@ let socket: WebSocket | null = null;
 let reconnectAttempt = 0;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let sweepTimer: ReturnType<typeof setInterval> | null = null;
+let watchdogTimer: ReturnType<typeof setInterval> | null = null;
 let started = false;
 let lastMessageAt = 0;
 let connected = false;
+let connectedAt = 0;
 let messageCount = 0;
+let apiKeyHeld = '';
 
 function num(v: unknown): number | null {
   if (v == null || v === '') return null;
@@ -129,6 +135,8 @@ function applyMeta(v: AisStreamVessel, meta: any) {
     if (lat !== 91 && lon !== 181) {
       v.lat = lat;
       v.lon = lon;
+      // MetaData often carries the latest fix even when the typed body is sparse
+      if (!v.updatedAt) v.updatedAt = Date.now();
     }
   }
 }
@@ -241,6 +249,21 @@ function handleEnvelope(raw: Buffer | ArrayBuffer | Buffer[] | string) {
   }
 }
 
+function forceReconnect(reason: string) {
+  console.warn(`[aisstream] forcing reconnect: ${reason}`);
+  connected = false;
+  if (socket) {
+    try {
+      socket.removeAllListeners();
+      socket.terminate();
+    } catch {
+      /* ignore */
+    }
+    socket = null;
+  }
+  if (apiKeyHeld) scheduleReconnect(apiKeyHeld);
+}
+
 function scheduleReconnect(apiKey: string) {
   if (reconnectTimer) return;
   const delay = Math.min(30_000, 1000 * Math.pow(2, reconnectAttempt)) + Math.floor(Math.random() * 500);
@@ -253,10 +276,11 @@ function scheduleReconnect(apiKey: string) {
 }
 
 function connect(apiKey: string) {
+  apiKeyHeld = apiKey;
   if (socket) {
     try {
       socket.removeAllListeners();
-      socket.close();
+      socket.terminate();
     } catch {
       /* ignore */
     }
@@ -272,7 +296,7 @@ function connect(apiKey: string) {
   const subscribeTimer = setTimeout(() => {
     console.warn('[aisstream] subscription not sent in time — closing');
     try {
-      ws.close();
+      ws.terminate();
     } catch {
       /* ignore */
     }
@@ -281,6 +305,9 @@ function connect(apiKey: string) {
   ws.on('open', () => {
     clearTimeout(subscribeTimer);
     connected = true;
+    connectedAt = Date.now();
+    // Treat connect as activity so the watchdog doesn't fire before first AIS msg
+    if (!lastMessageAt) lastMessageAt = connectedAt;
     reconnectAttempt = 0;
     const subscription = {
       APIKey: apiKey,
@@ -335,6 +362,22 @@ function sweepStale() {
   }
 }
 
+function runWatchdog() {
+  if (!apiKeyHeld) return;
+  const now = Date.now();
+  if (!connected || !socket) {
+    // scheduleReconnect should handle this; nudge if stuck
+    if (!reconnectTimer && !socket) {
+      forceReconnect('watchdog: socket missing');
+    }
+    return;
+  }
+  const silentFor = now - (lastMessageAt || connectedAt || now);
+  if (silentFor >= SILENCE_RECONNECT_MS) {
+    forceReconnect(`no messages for ${Math.round(silentFor / 1000)}s`);
+  }
+}
+
 export function startAisStreamClient(): void {
   if (started) return;
   const apiKey = (process.env.AISSTREAM_API_KEY || '').trim();
@@ -343,8 +386,10 @@ export function startAisStreamClient(): void {
     return;
   }
   started = true;
+  apiKeyHeld = apiKey;
   connect(apiKey);
   if (!sweepTimer) sweepTimer = setInterval(sweepStale, SWEEP_MS);
+  if (!watchdogTimer) watchdogTimer = setInterval(runWatchdog, WATCHDOG_MS);
 }
 
 export function getAisStreamVessels(): AisStreamVessel[] {
@@ -376,6 +421,7 @@ export function getAisStreamStatus() {
     westOfMinus10: west,
     messageCount,
     lastMessageAt: lastMessageAt || null,
+    silenceSec: lastMessageAt ? Math.round((Date.now() - lastMessageAt) / 1000) : null,
     bbox: NORTH_ATLANTIC_BBOX,
   };
 }

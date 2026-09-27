@@ -3,6 +3,7 @@ import {
   HEADER_COLORS,
   headerTextColor,
   mmsiCategory,
+  mmsiFlagCountry,
   countryInfoFromMmsi,
   navStatusLabel,
   isMilitaryShipType,
@@ -26,9 +27,11 @@ assert.equal(mmsiCategory('211000001'), 'eu');
 assert.equal(mmsiCategory('412000001'), 'china');
 assert.equal(mmsiCategory('366000001'), 'rest');
 assert.equal(mmsiCategory('259000001', 35), 'military');
+assert.equal(mmsiFlagCountry('259000001'), 'norway');
 assert.equal(mmsiCategory('259000001', 'Military ops'), 'military');
 assert.equal(mmsiCategory('259000001', 55), 'military');
 assert.equal(mmsiCategory('273546520'), 'research'); // Yantar
+assert.equal(mmsiFlagCountry('273546520'), 'russia');
 assert.equal(mmsiCategory('273359440', null, '9548536'), 'research'); // Tryoshnikov
 assert.ok(isMilitaryShipType('Law enforcement'));
 

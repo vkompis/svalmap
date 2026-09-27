@@ -21,7 +21,9 @@
     "load:norwatch": "ts-node apps/jobs/scripts/loadNorMilWatchlist.ts",
     "derive:aoi": "ts-node apps/jobs/scripts/deriveAOI.ts",
     "load:sanctions": "ts-node apps/jobs/scripts/loadSanctions.ts",
-    "load:shadowfleet": "ts-node apps/jobs/scripts/loadShadowFleet.ts"
+    "load:shadowfleet": "ts-node apps/jobs/scripts/loadShadowFleet.ts",
+    "load:sodir-facilities": "scripts-runner/node_modules/.bin/tsx scripts-runner/fetchSodirFacilities.ts",
+    "load:sodir-pipelines": "scripts-runner/node_modules/.bin/tsx scripts-runner/fetchSodirPipelines.ts"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",

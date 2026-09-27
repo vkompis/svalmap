@@ -13,6 +13,9 @@ import {
   type GfwEventProps,
   type VesselLayerStatus,
   type CableFeatureProps,
+  type PortFeatureProps,
+  type RigFeatureProps,
+  type PipelineFeatureProps,
   type NavWarningProps,
   type AlertPolygon,
   type VesselFilterFlags,
@@ -28,6 +31,7 @@ type Props = {
   selectedMmsi?: string | null;
   vesselFilters?: VesselFilterFlags;
   trackDays?: number;
+  watchlistMmsis?: ReadonlySet<string> | string[];
   drawingAoi?: boolean;
   draftRing?: number[][];
   alertPolygons?: { id: string; polygon: AlertPolygon; label?: string }[];
@@ -35,6 +39,9 @@ type Props = {
   onVesselSelect?: (vessel: VesselFeatureProps) => void;
   onGfwEventSelect?: (event: GfwEventProps) => void;
   onCableSelect?: (cable: CableFeatureProps) => void;
+  onPortSelect?: (port: PortFeatureProps) => void;
+  onRigSelect?: (rig: RigFeatureProps) => void;
+  onPipelineSelect?: (pipeline: PipelineFeatureProps) => void;
   onNavWarningSelect?: (warning: NavWarningProps) => void;
   onDeselect?: () => void;
   onVesselStatus?: (status: VesselLayerStatus) => void;
@@ -51,6 +58,7 @@ export default function MapCanvas({
   selectedMmsi,
   vesselFilters,
   trackDays = 1,
+  watchlistMmsis,
   drawingAoi = false,
   draftRing = [],
   alertPolygons = [],
@@ -58,6 +66,9 @@ export default function MapCanvas({
   onVesselSelect,
   onGfwEventSelect,
   onCableSelect,
+  onPortSelect,
+  onRigSelect,
+  onPipelineSelect,
   onNavWarningSelect,
   onDeselect,
   onVesselStatus,
@@ -72,7 +83,13 @@ export default function MapCanvas({
       attribution={attribution}
       maptilerKey={maptilerKey}
     >
-      <OverlayLayers visibility={overlays} onCableSelect={onCableSelect} />
+      <OverlayLayers
+        visibility={overlays}
+        onCableSelect={onCableSelect}
+        onPortSelect={onPortSelect}
+        onRigSelect={onRigSelect}
+        onPipelineSelect={onPipelineSelect}
+      />
       <IncidentLayer
         showActive={overlays.navwarnings}
         showRecent30d={overlays['navwarnings-30d']}
@@ -85,6 +102,7 @@ export default function MapCanvas({
         selectedMmsi={selectedMmsi}
         filters={vesselFilters}
         trackDays={trackDays}
+        watchlistMmsis={watchlistMmsis}
         onVesselSelect={drawingAoi ? undefined : onVesselSelect}
         onDeselect={drawingAoi ? undefined : onDeselect}
         onStatus={onVesselStatus}

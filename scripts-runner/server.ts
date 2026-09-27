@@ -36,6 +36,8 @@ import {
   upsertServerAlert,
 } from './alertMail';
 import { startAlertWatcher } from './alertWatcher';
+import { fetchSodirFacilitiesToFile } from './fetchSodirFacilities';
+import { fetchSodirPipelinesToFile } from './fetchSodirPipelines';
 
 const RESEARCH_NAME_BY_MMSI = new Map(
   RUSSIAN_RESEARCH_VESSELS.map((v) => [v.mmsi, v.name] as const)
@@ -498,6 +500,21 @@ app.get('/api/health', (_req, res) => {
       ageMs: iceAgeMs,
       meta: iceMeta,
     },
+    petroleum: {
+      ready:
+        fs.existsSync(path.join(OVERLAYS_DIR, 'petroleum.geojson')) &&
+        fs.existsSync(path.join(OVERLAYS_DIR, 'pipelines.geojson')),
+      ageMs: (() => {
+        const m = readPetroleumMeta();
+        const t = m?.fetchedAt || m?.generated_at;
+        return t ? Date.now() - new Date(t).getTime() : null;
+      })(),
+      meta: readPetroleumMeta(),
+      pipelines: {
+        ready: fs.existsSync(path.join(OVERLAYS_DIR, 'pipelines.geojson')),
+        meta: readPipelinesMeta(),
+      },
+    },
     tlsInsecure: process.env.TLS_INSECURE === '1',
     apiKeyRequired: Boolean(API_KEY),
     emailConfigured: emailConfigured(),
@@ -874,6 +891,91 @@ app.post('/api/ice-edge/refresh', async (_req, res) => {
   else res.status(500).json(result);
 });
 
+const PETROLEUM_META = path.join(OVERLAYS_DIR, 'petroleum.meta.json');
+const PIPELINES_META = path.join(OVERLAYS_DIR, 'pipelines.meta.json');
+
+function readPetroleumMeta(): any | null {
+  try {
+    if (!fs.existsSync(PETROLEUM_META)) return null;
+    return JSON.parse(fs.readFileSync(PETROLEUM_META, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function readPipelinesMeta(): any | null {
+  try {
+    if (!fs.existsSync(PIPELINES_META)) return null;
+    return JSON.parse(fs.readFileSync(PIPELINES_META, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+let petroleumRefreshing = false;
+async function refreshPetroleum(reason: string): Promise<{
+  ok: boolean;
+  error?: string;
+  meta?: any;
+  featureCount?: number;
+  pipelines?: { featureCount?: number; meta?: any };
+}> {
+  if (petroleumRefreshing) return { ok: false, error: 'already running' };
+  petroleumRefreshing = true;
+  console.log(`[petroleum/sodir] refresh (${reason})…`);
+  try {
+    const [facilities, pipelines] = await Promise.all([
+      fetchSodirFacilitiesToFile(OVERLAYS_DIR),
+      fetchSodirPipelinesToFile(OVERLAYS_DIR),
+    ]);
+    if (!facilities.ok) {
+      console.warn('[petroleum/sodir] facilities refresh failed', facilities.error);
+      return { ok: false, error: facilities.error };
+    }
+    if (!pipelines.ok) {
+      console.warn('[petroleum/sodir] pipelines refresh failed', pipelines.error);
+      return { ok: false, error: pipelines.error };
+    }
+    console.log(
+      `[petroleum/sodir] ok facilities=${facilities.featureCount} pipelines=${pipelines.featureCount} source=sodir-factmaps`
+    );
+    return {
+      ok: true,
+      meta: facilities.meta || readPetroleumMeta(),
+      featureCount: facilities.featureCount,
+      pipelines: {
+        featureCount: pipelines.featureCount,
+        meta: pipelines.meta || readPipelinesMeta(),
+      },
+    };
+  } finally {
+    petroleumRefreshing = false;
+  }
+}
+
+app.get('/api/petroleum/status', (_req, res) => {
+  const meta = readPetroleumMeta();
+  const pipelinesMeta = readPipelinesMeta();
+  const geo = path.join(OVERLAYS_DIR, 'petroleum.geojson');
+  const pipelinesGeo = path.join(OVERLAYS_DIR, 'pipelines.geojson');
+  res.json({
+    ready: fs.existsSync(geo) && fs.existsSync(pipelinesGeo),
+    meta,
+    pipelines: {
+      ready: fs.existsSync(pipelinesGeo),
+      meta: pipelinesMeta,
+      url: '/overlays/pipelines.geojson',
+    },
+    url: '/overlays/petroleum.geojson',
+  });
+});
+
+app.post('/api/petroleum/refresh', async (_req, res) => {
+  const result = await refreshPetroleum('api');
+  if (result.ok) res.json(result);
+  else res.status(500).json(result);
+});
+
 app.get('/api/assets', async (_req, res) => {
   try {
     const payload:any[] = [];
@@ -970,8 +1072,9 @@ function isRecreationalShipType(shipType: any): boolean {
 
 /**
  * Same display rules as before, expanded geographically:
- * - Svalbard FPZ: all vessels (drop fishing <15 m / recreational <45 m when length known)
- * - Rest of North Atlantic north of 54°N (incl. Norway + Jan Mayen EEZs):
+ * - Svalbard FPZ + Norway EEZ + Jan Mayen EEZ: all vessels
+ *   (drop fishing <15 m / recreational <45 m when length known)
+ * - Rest of North Atlantic north of 54°N:
  *   Russian / research / shadow / sanctioned / military only
  */
 function shouldIncludeVessel(opts: {
@@ -984,10 +1087,16 @@ function shouldIncludeVessel(opts: {
 }): { include: boolean; inSvalbard: boolean } {
   const { lon, lat, mmsi, imo, shipType, lengthM } = opts;
   const inSvalbard = pointInGeom(lon, lat, AOI_TURF_GEOMETRY);
-  if (inSvalbard) {
+  const inNorwayEez = pointInGeom(lon, lat, NORWAY_TURF_GEOMETRY);
+  const inJanMayenEez = pointInGeom(lon, lat, JANMAYEN_TURF_GEOMETRY);
+  const inFullCoverageZone = inSvalbard || inNorwayEez || inJanMayenEez;
+
+  if (inFullCoverageZone) {
     if (lengthM != null) {
-      if (isFishingShipType(shipType) && lengthM < 15) return { include: false, inSvalbard };
-      if (isRecreationalShipType(shipType) && lengthM < 45) return { include: false, inSvalbard };
+      if (isFishingShipType(shipType) && lengthM < 15)
+        return { include: false, inSvalbard };
+      if (isRecreationalShipType(shipType) && lengthM < 45)
+        return { include: false, inSvalbard };
     }
     return { include: true, inSvalbard };
   }
@@ -3072,6 +3181,39 @@ app.listen(PORT, () => {
       refreshIceEdge('startup').catch((e) => console.warn('[ice-edge] startup failed', e));
     } else {
       console.log(`[ice-edge] cache ok age=${Math.round((ageMs || 0) / 3600000)}h features=${meta?.feature_count}`);
+    }
+  }
+
+  // Sodir FactMaps facilities + pipelines — daily + startup if missing/stale (>7d) or not Sodir
+  cron.schedule('45 6 * * *', () => {
+    refreshPetroleum('daily-cron').catch((e) =>
+      console.warn('[petroleum/sodir] cron failed', e)
+    );
+  });
+  {
+    const meta = readPetroleumMeta();
+    const pipeMeta = readPipelinesMeta();
+    const ageFrom = (m: any) =>
+      m?.fetchedAt
+        ? Date.now() - Date.parse(m.fetchedAt)
+        : m?.generated_at
+          ? Date.now() - Date.parse(m.generated_at)
+          : null;
+    const ageMs = ageFrom(meta);
+    const pipeAgeMs = ageFrom(pipeMeta);
+    const notSodir =
+      meta?.source !== 'sodir-factmaps' || pipeMeta?.source !== 'sodir-factmaps';
+    const staleAge = (age: number | null) =>
+      age == null || !Number.isFinite(age) || age > 7 * 24 * 3600e3;
+    const stale = notSodir || staleAge(ageMs) || staleAge(pipeAgeMs);
+    if (stale) {
+      refreshPetroleum('startup').catch((e) =>
+        console.warn('[petroleum/sodir] startup failed', e)
+      );
+    } else {
+      console.log(
+        `[petroleum/sodir] cache ok age=${Math.round((ageMs || 0) / 3600000)}h facilities=${meta?.feature_count} pipelines=${pipeMeta?.feature_count}`
+      );
     }
   }
 

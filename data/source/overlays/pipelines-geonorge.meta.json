@@ -1,0 +1,8 @@
+{
+  "source": "geonorge-chart",
+  "layer": "GeoNorge r\u00f8rledning (chart)",
+  "generated_at": "2026-09-26T01:26:00.000Z",
+  "feature_count": 1832,
+  "note": "Legacy GeoNorge chart pipelines kept for reference. Marked not in use; Sodir FactMaps is the active petroleum pipeline source.",
+  "status": "not in use"
+}

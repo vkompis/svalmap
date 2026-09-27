@@ -1,0 +1,10 @@
+{
+  "source": "sodir-factmaps",
+  "layer": "FactMapsWGS84/304 Facilities, in place (surface)",
+  "where": "fclSurface='Y' AND fclFixedOrMoveable='FIXED'",
+  "url": "https://factmaps.sodir.no/api/rest/services/Factmaps/FactMapsWGS84/MapServer/304/query",
+  "generated_at": "2026-09-26T01:17:13.906Z",
+  "fetchedAt": "2026-09-26T01:17:13.906Z",
+  "feature_count": 169,
+  "note": "Sodir FactMaps surface FIXED facilities in place (daily sync). Moveable units are omitted — FactMaps has no coordinates for them."
+}

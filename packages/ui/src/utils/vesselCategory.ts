@@ -14,6 +14,9 @@ export type VesselCategory =
   | 'research'
   | 'rest';
 
+/** Flag / MID country bucket — independent of military/research marker category. */
+export type FlagCountry = 'norway' | 'russia' | 'eu' | 'china' | 'rest';
+
 export const HEADER_COLORS: Record<VesselCategory, string> = {
   norway: '#ff4040',
   russia: '#7dacff',
@@ -61,14 +64,7 @@ export function isMilitaryShipType(shipType: unknown): boolean {
   );
 }
 
-export function mmsiCategory(
-  mmsi: unknown,
-  shipType?: unknown,
-  imo?: unknown
-): VesselCategory {
-  // Curated research list wins over generic Russia / military typing
-  if (isRussianResearchVessel(mmsi, imo)) return 'research';
-  if (isMilitaryShipType(shipType)) return 'military';
+export function mmsiFlagCountry(mmsi: unknown): FlagCountry {
   const s = String(mmsi || '');
   const mid = parseInt(s.slice(0, 3), 10);
   if ([257, 258, 259].includes(mid)) return 'norway';
@@ -77,6 +73,17 @@ export function mmsiCategory(
   if (iso && EU_ISO.has(iso)) return 'eu';
   if (mid >= 412 && mid <= 419) return 'china';
   return 'rest';
+}
+
+export function mmsiCategory(
+  mmsi: unknown,
+  shipType?: unknown,
+  imo?: unknown
+): VesselCategory {
+  // Curated research list wins over generic Russia / military typing
+  if (isRussianResearchVessel(mmsi, imo)) return 'research';
+  if (isMilitaryShipType(shipType)) return 'military';
+  return mmsiFlagCountry(mmsi);
 }
 
 export function countryInfoFromMmsi(mmsi: unknown): { iso: string; name: string } {

@@ -445,11 +445,15 @@ body {
   background: #0b1220;
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 8px;
-  gap: 4px;
+  gap: 8px;
 }
 
 .panel .item-toggle {
   cursor: pointer;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 22px 56px;
+  align-items: center;
+  column-gap: 8px;
 }
 
 .panel .item-toggle:focus-within {
@@ -465,6 +469,16 @@ body {
   background: transparent;
   border: 0;
   margin: 0;
+  display: block;
+}
+
+.panel .item.sar-key,
+.panel .item.sar-flag-filter {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 8px;
 }
 
 .panel .item .label {
@@ -476,16 +490,59 @@ body {
   min-width: 0;
 }
 
-.panel .item .spacer {
-  flex: 1;
+.panel .item-toggle .label {
+  grid-column: 1;
 }
 
-.panel .item .menu-icon {
+.panel .item .spacer {
+  display: none;
+}
+
+.panel .item .menu-icon,
+.panel .item .menu-icon-slot {
   width: 22px;
   height: 22px;
-  margin-left: 8px;
-  margin-right: 4px;
+  margin: 0;
   flex-shrink: 0;
+}
+
+.panel .item-toggle .menu-icon,
+.panel .item-toggle .menu-icon-slot {
+  grid-column: 2;
+  justify-self: center;
+}
+
+.panel .item .menu-icon-slot {
+  display: block;
+}
+
+.panel .item-control {
+  grid-column: 3;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  width: 56px;
+  min-height: 18px;
+  justify-self: end;
+}
+
+.panel .item-control input[type='checkbox'] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: #38bdf8;
+}
+
+.panel .item-control .track-days-select {
+  width: 100%;
+  max-width: 56px;
+}
+
+.panel .item-control .text-btn {
+  margin: 0;
+  padding: 0;
+  white-space: nowrap;
 }
 
 .panel .text-btn {
@@ -494,13 +551,14 @@ body {
   color: #94a3b8;
   cursor: pointer;
   font-size: 12px;
-  margin-left: 8px;
+  margin-left: 0;
 }
 
 .panel .group {
   margin-top: 4px;
   border-left: 1px dashed rgba(255, 255, 255, 0.1);
-  padding-left: 8px;
+  padding-left: 0;
+  margin-left: 4px;
 }
 
 .panel .section .disclaimer-toggle {
@@ -957,6 +1015,9 @@ body {
 #legend .line.ice {
   background: #7dd3fc;
 }
+#legend .line.bathymetry {
+  background: linear-gradient(90deg, #080f18, #283d54, #8aa4bc);
+}
 #legend .line.nav {
   background: #ef4444;
 }
@@ -968,6 +1029,15 @@ body {
 }
 #legend .line.nkom-cable {
   background: #00e6ff;
+}
+#legend .line.pipeline {
+  background: #fb923c;
+}
+#legend .line.pipeline-unused {
+  background: #94a3b8;
+}
+#legend .swatch.petroleum {
+  background: #f97316;
 }
 
 #legend .legend-note {
@@ -1131,4 +1201,165 @@ body {
 }
 .item.hint.warn {
   color: #fbbf24;
+}
+
+/* Ship hover card (NAIS-inspired, dark map chrome) */
+.svalmap-ship-hover-popup .maplibregl-popup-content {
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.svalmap-ship-hover-popup .maplibregl-popup-tip {
+  border-bottom-color: rgba(15, 23, 42, 0.96);
+  border-top-color: rgba(15, 23, 42, 0.96);
+}
+.svalmap-ship-hover {
+  width: 248px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(15, 23, 42, 0.96);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  color: #e2e8f0;
+  font-size: 12px;
+  line-height: 1.35;
+  pointer-events: none;
+}
+.svalmap-ship-hover .ssh-head {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px 8px;
+  border-bottom: 1px dashed rgba(148, 163, 184, 0.28);
+}
+.svalmap-ship-hover .ssh-marker {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+.svalmap-ship-hover .ssh-title {
+  min-width: 0;
+  flex: 1;
+}
+.svalmap-ship-hover .ssh-name {
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #f8fafc;
+  word-break: break-word;
+}
+.svalmap-ship-hover .ssh-flagline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  color: #cbd5e1;
+  font-size: 11px;
+}
+.svalmap-ship-hover .ssh-flag {
+  width: 14px;
+  height: 10px;
+  object-fit: cover;
+  border-radius: 1px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15);
+}
+.svalmap-ship-hover .ssh-meta {
+  margin-top: 3px;
+  color: #94a3b8;
+  font-size: 11px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.svalmap-ship-hover .ssh-sep {
+  opacity: 0.5;
+}
+.svalmap-ship-hover .ssh-mmsi {
+  font-variant-numeric: tabular-nums;
+}
+.svalmap-ship-hover .ssh-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0;
+  border-bottom: 1px dashed rgba(148, 163, 184, 0.28);
+}
+.svalmap-ship-hover .ssh-stat {
+  padding: 8px 10px;
+  text-align: center;
+}
+.svalmap-ship-hover .ssh-stat + .ssh-stat {
+  border-left: 1px solid rgba(148, 163, 184, 0.22);
+}
+.svalmap-ship-hover .ssh-k {
+  display: block;
+  color: #94a3b8;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.svalmap-ship-hover .ssh-v {
+  display: block;
+  margin-top: 2px;
+  color: #f1f5f9;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.svalmap-ship-hover .ssh-body {
+  padding: 8px 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.svalmap-ship-hover .ssh-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+.svalmap-ship-hover .ssh-row .ssh-k {
+  flex-shrink: 0;
+  padding-top: 1px;
+}
+.svalmap-ship-hover .ssh-row .ssh-v {
+  text-align: right;
+  font-weight: 500;
+  color: #e2e8f0;
+}
+.svalmap-ship-hover .ssh-age {
+  display: block;
+  margin-top: 2px;
+  color: #94a3b8;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.svalmap-ring-hover-popup .maplibregl-popup-content {
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.svalmap-ring-hover-popup .maplibregl-popup-tip {
+  border-top-color: rgba(15, 23, 42, 0.96);
+  border-bottom-color: rgba(15, 23, 42, 0.96);
+}
+.svalmap-ring-tip {
+  background: rgba(15, 23, 42, 0.96);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  color: #f8fafc;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
 }

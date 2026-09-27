@@ -1,0 +1,10 @@
+{
+  "source": "sodir-factmaps",
+  "layer": "FactMapsWGS84/311 Pipelines",
+  "where": "1=1",
+  "url": "https://factmaps.sodir.no/api/rest/services/Factmaps/FactMapsWGS84/MapServer/311/query",
+  "generated_at": "2026-09-26T01:24:28.268Z",
+  "fetchedAt": "2026-09-26T01:24:28.268Z",
+  "feature_count": 77,
+  "note": "Sodir FactMaps petroleum transport pipelines (daily sync). Accuracy ±50 m; tracks within 500 m of facilities are omitted by Sodir."
+}

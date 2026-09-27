@@ -4,6 +4,7 @@ export { default as VesselLayer } from './components/VesselLayer';
 export type { VesselFeatureProps, VesselLayerStatus } from './components/VesselLayer';
 export {
   mmsiCategory,
+  mmsiFlagCountry,
   countryInfoFromMmsi,
   HEADER_COLORS,
   headerTextColor,
@@ -12,9 +13,9 @@ export {
   RUSSIAN_RESEARCH_VESSELS,
   RESEARCH_COLOR,
 } from './utils/vesselCategory';
-export type { VesselCategory } from './utils/vesselCategory';
+export type { VesselCategory, FlagCountry } from './utils/vesselCategory';
 export { default as OverlayLayers } from './components/OverlayLayers';
-export type { OverlayVisibility, CableFeatureProps } from './components/OverlayLayers';
+export type { OverlayVisibility, CableFeatureProps, PortFeatureProps, RigFeatureProps, PipelineFeatureProps } from './components/OverlayLayers';
 export { default as GfwLayers } from './components/GfwLayers';
 export {
   SAR_MATCHED_FLAG_OPTIONS,
@@ -59,9 +60,26 @@ export type { LiveIncident } from './components/LiveIncidentsPanel';
 export {
   DEFAULT_VESSEL_FILTERS,
   anyFilterActive,
+  vesselFilterExpression,
   vesselPassesFilter,
+  mergeVesselFilters,
+  vesselFiltersToUrlTokens,
+  vesselFiltersFromUrlTokens,
 } from './utils/vesselFilters';
-export type { VesselFilterFlags } from './utils/vesselFilters';
+export type { VesselFilterFlags, VesselFilterExtras } from './utils/vesselFilters';
+export {
+  SHIP_CLASS_KEYS,
+  SHIP_CLASS_LABELS,
+  resolveShipClass,
+} from './utils/shipClass';
+export type { ShipClass } from './utils/shipClass';
+export { buildVesselHoverHtml, formatLatLonDm } from './utils/vesselHover';
+export type { VesselHoverInput } from './utils/vesselHover';
+export {
+  buildProjectionRingFeatures,
+  formatProjectionLabel,
+  PROJECTION_MINUTES,
+} from './utils/projectionRings';
 export {
   loadWatchlist,
   saveWatchlist,

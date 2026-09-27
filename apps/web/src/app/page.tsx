@@ -9,6 +9,9 @@ import type {
   GfwEventProps,
   VesselLayerStatus,
   CableFeatureProps,
+  PortFeatureProps,
+  RigFeatureProps,
+  PipelineFeatureProps,
   NavWarningProps,
   AreaAlertRule,
   VesselFilterFlags,
@@ -25,6 +28,9 @@ import {
   LiveIncidentsPanel,
   DEFAULT_VESSEL_FILTERS,
   SAR_MATCHED_FLAG_OPTIONS,
+  mmsiCategory,
+  mmsiFlagCountry,
+  countryInfoFromMmsi,
   loadWatchlist,
   saveWatchlist,
   upsertWatchEntry,
@@ -36,11 +42,17 @@ import {
   writeUrlState,
   copyShareUrl,
   anyFilterActive,
+  mergeVesselFilters,
+  vesselFiltersToUrlTokens,
+  vesselFiltersFromUrlTokens,
+  SHIP_CLASS_KEYS,
+  SHIP_CLASS_LABELS,
+  resolveShipClass,
 } from '@svalmap/ui';
 
 const MapCanvas = dynamic(() => import('./MapCanvas'), { ssr: false });
 
-const PREFS_KEY = 'svalmap.layerPrefs.v4';
+const PREFS_KEY = 'svalmap.layerPrefs.v10';
 
 const DEFAULT_OVERLAYS: OverlayVisibility = {
   'eez-norway': false,
@@ -48,7 +60,10 @@ const DEFAULT_OVERLAYS: OverlayVisibility = {
   'eez-svalbard': false,
   cables: false,
   'cables-telegeography': false,
+  pipelines: false,
+  'pipelines-old': false,
   petroleum: false,
+  bathymetry: false,
   nsm: false,
   skytefelt: false,
   ports: false,
@@ -61,10 +76,10 @@ const DEFAULT_OVERLAYS: OverlayVisibility = {
 const DEFAULT_GFW: GfwVisibility = {
   loitering: false,
   encounters: false,
-  aisoff: true,
+  aisoff: false,
   port: false,
-  sarUnmatched: true,
-  sarMatched: true,
+  sarUnmatched: false,
+  sarMatched: false,
   sarMatchedFlags: [],
   viirs: false,
 };
@@ -83,6 +98,9 @@ type DetailSelection =
   | { kind: 'vessel'; vessel: VesselFeatureProps }
   | { kind: 'gfw'; event: GfwEventProps }
   | { kind: 'cable'; cable: CableFeatureProps }
+  | { kind: 'port'; port: PortFeatureProps }
+  | { kind: 'rig'; rig: RigFeatureProps }
+  | { kind: 'pipeline'; pipeline: PipelineFeatureProps }
   | { kind: 'navwarning'; warning: NavWarningProps };
 
 function formatWhen(iso: string | null | undefined) {
@@ -108,13 +126,18 @@ function LayerRow({
   return (
     <label className="item item-toggle">
       <span className="label">{label}</span>
-      <span className="spacer" />
-      {icon ? <img className="menu-icon" src={icon} alt={iconAlt || ''} /> : null}
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-      />
+      {icon ? (
+        <img className="menu-icon" src={icon} alt={iconAlt || ''} />
+      ) : (
+        <span className="menu-icon-slot" aria-hidden />
+      )}
+      <span className="item-control">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+        />
+      </span>
     </label>
   );
 }
@@ -123,7 +146,7 @@ export default function HomePage() {
   const [drawerOpen, setDrawerOpen] = useState(true);
   const [eaOpen, setEaOpen] = useState(false);
   const [coverageOpen, setCoverageOpen] = useState(false);
-  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(true);
   const [navWarningsOpen, setNavWarningsOpen] = useState(false);
   const [legendOpen, setLegendOpen] = useState(false);
   const [detailDrawerOpen, setDetailDrawerOpen] = useState(false);
@@ -156,11 +179,10 @@ export default function HomePage() {
   const [pendingMmsi, setPendingMmsi] = useState<string | null>(null);
 
   const mapStyle =
-    process.env.NEXT_PUBLIC_MAP_STYLE ||
-    'https://api.maptiler.com/maps/01a0da39-c5b8-768c-abcd-1e06869c3fda/style.json';
+    process.env.NEXT_PUBLIC_MAP_STYLE || '/styles/svalmap-dark.json';
   const attribution =
     process.env.NEXT_PUBLIC_MAP_ATTRIBUTION ||
-    '© MapTiler © OpenStreetMap contributors';
+    '© NRK / Kartverket © OpenStreetMap contributors';
   const maptilerKey = process.env.NEXT_PUBLIC_MAPTILER_KEY || '';
   // If style URL is MapTiler without ?key=, append it
   const mapStyleWithKey =
@@ -178,9 +200,19 @@ export default function HomePage() {
       if (raw) {
         const p = JSON.parse(raw);
         if (p.overlays) {
+          const legacyPet = p.overlays.petroleum === true;
+          const hasSplit =
+            typeof p.overlays.pipelines === 'boolean' ||
+            typeof p.overlays['pipelines-old'] === 'boolean';
           setOverlays({
             ...DEFAULT_OVERLAYS,
             ...p.overlays,
+            // v4 combined "Pipelines & oil rigs" → split toggles
+            pipelines: hasSplit
+              ? Boolean(p.overlays.pipelines)
+              : legacyPet,
+            petroleum: Boolean(p.overlays.petroleum),
+            'pipelines-old': Boolean(p.overlays['pipelines-old']),
             airports: false,
             // Always start with nav warnings off (enable in session as needed)
             navwarnings: false,
@@ -194,16 +226,15 @@ export default function HomePage() {
             ...DEFAULT_GFW,
             ...p.gfw,
             viirs: false,
-            // Free dark-vessel layers — on by default so AIS-off / SAR are visible
-            aisoff: true,
+            aisoff: Boolean(p.gfw.aisoff),
             sarUnmatched:
               typeof p.gfw.sarUnmatched === 'boolean'
                 ? p.gfw.sarUnmatched
-                : legacySar !== false,
+                : Boolean(legacySar),
             sarMatched:
               typeof p.gfw.sarMatched === 'boolean'
                 ? p.gfw.sarMatched
-                : legacySar !== false,
+                : Boolean(legacySar),
             sarMatchedFlags: Array.isArray(rawFlags)
               ? rawFlags
                   .map((f) => String(f || '').trim().toUpperCase())
@@ -213,7 +244,7 @@ export default function HomePage() {
         }
         if (typeof p.shipsVisible === 'boolean') setShipsVisible(p.shipsVisible);
         if (typeof p.drawerOpen === 'boolean') setDrawerOpen(p.drawerOpen);
-        if (p.vesselFilters) setVesselFilters({ ...DEFAULT_VESSEL_FILTERS, ...p.vesselFilters });
+        if (p.vesselFilters) setVesselFilters(mergeVesselFilters(p.vesselFilters));
         if (typeof p.trackDays === 'number') setTrackDays(Math.max(1, Math.min(14, p.trackDays)));
         if (typeof p.showIncidents === 'boolean') setShowIncidents(p.showIncidents);
       }
@@ -224,14 +255,19 @@ export default function HomePage() {
       if (url.mmsi) setPendingMmsi(url.mmsi);
       if (typeof url.ships === 'boolean') setShipsVisible(url.ships);
       if (url.trackDays) setTrackDays(url.trackDays);
-      if (url.filters?.length) {
-        setVesselFilters({
-          ...DEFAULT_VESSEL_FILTERS,
-          sanctioned: url.filters.includes('sanctioned'),
-          shadow: url.filters.includes('shadow'),
-          research: url.filters.includes('research'),
-          military: url.filters.includes('military'),
-          russian: url.filters.includes('russian'),
+      // URL filters only apply when prefs already exist for this version.
+      // On a prefs migration (no v9 key yet), drop sticky deep-link filters that
+      // were left over from the old exclusive model / mid-debug sessions.
+      if (url.filters?.length && raw) {
+        setVesselFilters(vesselFiltersFromUrlTokens(url.filters));
+      } else if (url.filters?.length && !raw) {
+        writeUrlState({
+          mmsi: url.mmsi,
+          ships: url.ships,
+          trackDays: url.trackDays,
+          filters: [],
+          navActive: url.navActive,
+          nav30d: url.nav30d,
         });
       }
       if (url.navActive) {
@@ -333,6 +369,21 @@ export default function HomePage() {
     setDetailDrawerOpen(true);
     setAlertsExpanded(false);
   };
+  const openPort = (port: PortFeatureProps) => {
+    setSelection({ kind: 'port', port });
+    setDetailDrawerOpen(true);
+    setAlertsExpanded(false);
+  };
+  const openRig = (rig: RigFeatureProps) => {
+    setSelection({ kind: 'rig', rig });
+    setDetailDrawerOpen(true);
+    setAlertsExpanded(false);
+  };
+  const openPipeline = (pipeline: PipelineFeatureProps) => {
+    setSelection({ kind: 'pipeline', pipeline });
+    setDetailDrawerOpen(true);
+    setAlertsExpanded(false);
+  };
   const openNavWarning = (warning: NavWarningProps) => {
     setSelection({ kind: 'navwarning', warning });
     setDetailDrawerOpen(true);
@@ -346,19 +397,75 @@ export default function HomePage() {
     setPendingMmsi(null);
   }, []);
 
+  const openVesselFromGfw = useCallback(
+    (
+      mmsi: string,
+      opts?: {
+        name?: string | null;
+        russian?: boolean;
+        sanctioned?: boolean;
+        shadowfleet?: boolean;
+        lon?: number;
+        lat?: number;
+      }
+    ) => {
+      const id = String(mmsi || '').replace(/\D/g, '').padStart(9, '0').slice(-9);
+      if (!id || id === '000000000') return;
+      setShipsVisible(true);
+      const hit = liveVessels.find((v) => v.mmsi === id);
+      if (hit) {
+        openVessel(hit);
+        return;
+      }
+      const country = countryInfoFromMmsi(id);
+      const name = (opts?.name && opts.name.trim()) || `MMSI ${id}`;
+      // Keep pending so the stub upgrades when the vessel appears live
+      setPendingMmsi(id);
+      setSelection({
+        kind: 'vessel',
+        vessel: {
+          mmsi: id,
+          name,
+          label: name,
+          category: opts?.russian ? 'russia' : mmsiCategory(id),
+          flagCountry: mmsiFlagCountry(id),
+          shipClass: 'unknown',
+          speed: null,
+          imo: null,
+          course: null,
+          heading: null,
+          destination: null,
+          shipType: null,
+          status: null,
+          eta: null,
+          timestamp: null,
+          source: null,
+          sanctioned: opts?.sanctioned ? 1 : 0,
+          shadowfleet: opts?.shadowfleet ? 1 : 0,
+          military: 0,
+          research: 0,
+          country: country.name,
+          flag: country.iso,
+          lon: Number.isFinite(opts?.lon) ? (opts!.lon as number) : null,
+          lat: Number.isFinite(opts?.lat) ? (opts!.lat as number) : null,
+        },
+      });
+      setDetailDrawerOpen(true);
+      setAlertsExpanded(false);
+    },
+    [liveVessels, openVessel]
+  );
+
   const selectedMmsi =
     selection?.kind === 'vessel' ? selection.vessel.mmsi : pendingMmsi;
 
   useEffect(() => {
     if (!prefsReady) return;
-    const filterKeys = (
-      ['sanctioned', 'shadow', 'research', 'military', 'russian'] as const
-    ).filter((k) => vesselFilters[k]);
     writeUrlState({
       mmsi: selectedMmsi,
       ships: shipsVisible,
       trackDays,
-      filters: filterKeys,
+      filters: vesselFiltersToUrlTokens(vesselFilters),
       navActive: overlays.navwarnings,
       nav30d: overlays['navwarnings-30d'],
     });
@@ -372,12 +479,12 @@ export default function HomePage() {
     overlays['navwarnings-30d'],
   ]);
 
-  // Resolve deep-linked MMSI once live vessels arrive
+  // Resolve / upgrade deep-linked or GFW-handoff MMSI once live vessels arrive
   useEffect(() => {
-    if (!pendingMmsi || selection?.kind === 'vessel') return;
+    if (!pendingMmsi) return;
     const hit = liveVessels.find((v) => v.mmsi === pendingMmsi);
     if (hit) openVessel(hit);
-  }, [pendingMmsi, liveVessels, selection, openVessel]);
+  }, [pendingMmsi, liveVessels, openVessel]);
 
   // Sanctions dossier for selected vessel
   useEffect(() => {
@@ -412,6 +519,11 @@ export default function HomePage() {
       gfw.sarUnmatched ||
       gfw.sarMatched;
 
+  const watchlistMmsis = useMemo(
+    () => new Set(watchlist.entries.map((e) => String(e.mmsi))),
+    [watchlist.entries]
+  );
+
   const statusLabel = useMemo(() => {
     if (aisStatus.error) return 'AIS error';
     if (aisStatus.lastUpdate) {
@@ -436,7 +548,10 @@ export default function HomePage() {
   const closeColor =
     selection?.kind === 'vessel'
       ? headerTextColor(selection.vessel.category)
-      : selection?.kind === 'cable' || selection?.kind === 'navwarning'
+      : selection?.kind === 'cable' ||
+          selection?.kind === 'port' ||
+          selection?.kind === 'rig' ||
+          selection?.kind === 'navwarning'
         ? '#fff'
         : '#fff';
 
@@ -461,9 +576,8 @@ export default function HomePage() {
                 ? 'research'
                 : hit.military
                   ? 'military'
-                  : String(hit.mmsi).startsWith('273')
-                    ? 'russia'
-                    : 'rest',
+                  : mmsiCategory(hit.mmsi),
+              flagCountry: mmsiFlagCountry(hit.mmsi),
               speed: null,
               imo: hit.imo || null,
               course: null,
@@ -473,11 +587,14 @@ export default function HomePage() {
               status: null,
               eta: null,
               timestamp: null,
+              source: null,
+              shipClass: resolveShipClass(hit.shipType || null),
               sanctioned: hit.sanctioned ? 1 : 0,
               shadowfleet: hit.shadowfleet ? 1 : 0,
               military: hit.military ? 1 : 0,
-              country: '',
-              flag: 'xx',
+              research: hit.research ? 1 : 0,
+              country: countryInfoFromMmsi(hit.mmsi).name,
+              flag: countryInfoFromMmsi(hit.mmsi).iso,
               lon: hit.lon,
               lat: hit.lat,
             });
@@ -528,49 +645,33 @@ export default function HomePage() {
             </button>
           </div>
 
-          <button
-            type="button"
-            className={`disclaimer-toggle ${coverageOpen ? 'open' : ''}`}
-            onClick={() => setCoverageOpen((v) => !v)}
-            aria-expanded={coverageOpen}
-          >
-            Data coverage
-          </button>
-          {coverageOpen && (
-            <div className="disclaimer">
-              Inside the Svalbard Fisheries Protection Zone: all registered vessels except fishing
-              under 15&nbsp;m and recreational under 45&nbsp;m (when length is known). Elsewhere in
-              the North Atlantic north of 54°N: Russian vessels, curated research vessels, shadow
-              fleet, sanctioned vessels, and military / law enforcement (AIS type or Norwegian
-              military MMSI list). Live AIS via AISStream + BarentsWatch (~20&nbsp;s refresh).
-            </div>
-          )}
-
           <div className="section">
-            {/* —— Vessels —— */}
-            <div className="section-header">Vessels</div>
+            {/* —— Ships (primary) —— */}
+            <div className="section-header">Ships</div>
             <LayerRow
-              label="Ships"
+              label="Live ships"
               icon="/menu/Ships.svg"
               checked={shipsVisible}
               onChange={setShipsVisible}
             />
             <label className="item item-toggle">
               <span className="label">Track lookback</span>
-              <span className="spacer" />
-              <select
-                className="track-days-select"
-                value={trackDays}
-                onChange={(e) => setTrackDays(Number(e.target.value))}
-                disabled={!shipsVisible}
-                title="BarentsWatch historic AIS, max 14 days"
-              >
-                {[1, 2, 3, 5, 7, 10, 14].map((d) => (
-                  <option key={d} value={d}>
-                    {d}d
-                  </option>
-                ))}
-              </select>
+              <span className="menu-icon-slot" aria-hidden />
+              <span className="item-control">
+                <select
+                  className="track-days-select"
+                  value={trackDays}
+                  onChange={(e) => setTrackDays(Number(e.target.value))}
+                  disabled={!shipsVisible}
+                  title="BarentsWatch historic AIS, max 14 days"
+                >
+                  {[1, 2, 3, 5, 7, 10, 14].map((d) => (
+                    <option key={d} value={d}>
+                      {d}d
+                    </option>
+                  ))}
+                </select>
+              </span>
             </label>
 
             <button
@@ -579,15 +680,95 @@ export default function HomePage() {
               onClick={() => setFiltersOpen((v) => !v)}
               aria-expanded={filtersOpen}
             >
-              Filters
+              Ship filters
               {anyFilterActive(vesselFilters) ? ' · on' : ''}
             </button>
             {filtersOpen && (
               <div className="group">
                 <div className="item hint">
-                  {anyFilterActive(vesselFilters)
-                    ? 'Showing flagged matches only'
-                    : 'Off = all live vessels in coverage'}
+                  {vesselFilters.sanctioned || vesselFilters.shadow
+                    ? 'Focus on — only sanctioned and/or shadow ships'
+                    : anyFilterActive(vesselFilters)
+                      ? 'Some categories hidden'
+                      : 'All ships visible — uncheck a category to hide it'}
+                </div>
+                {anyFilterActive(vesselFilters) && (
+                  <button
+                    type="button"
+                    className="text-btn"
+                    style={{ margin: '4px 0 8px' }}
+                    onClick={() => setVesselFilters({ ...DEFAULT_VESSEL_FILTERS })}
+                  >
+                    Show all ships
+                  </button>
+                )}
+                <div className="item hint" style={{ opacity: 0.75 }}>
+                  Commercial &amp; other by flag
+                </div>
+                <LayerRow
+                  label="Norwegian"
+                  checked={vesselFilters.norway}
+                  onChange={(on) => setFilterFlag('norway', on)}
+                />
+                <LayerRow
+                  label="EU"
+                  checked={vesselFilters.eu}
+                  onChange={(on) => setFilterFlag('eu', on)}
+                />
+                <LayerRow
+                  label="Chinese"
+                  checked={vesselFilters.china}
+                  onChange={(on) => setFilterFlag('china', on)}
+                />
+                <LayerRow
+                  label="Rest of world"
+                  checked={vesselFilters.rest}
+                  onChange={(on) => setFilterFlag('rest', on)}
+                />
+                <LayerRow
+                  label="Russian"
+                  checked={vesselFilters.russia}
+                  onChange={(on) => setFilterFlag('russia', on)}
+                />
+                <div className="item hint" style={{ opacity: 0.75, marginTop: 6 }}>
+                  Always shown when on (ignore country)
+                </div>
+                <LayerRow
+                  label="Research"
+                  checked={vesselFilters.research}
+                  onChange={(on) => setFilterFlag('research', on)}
+                />
+                <LayerRow
+                  label="Military"
+                  checked={vesselFilters.military}
+                  onChange={(on) => setFilterFlag('military', on)}
+                />
+                <div className="item hint" style={{ opacity: 0.75, marginTop: 6 }}>
+                  AIS ship type
+                </div>
+                {SHIP_CLASS_KEYS.map((key) => (
+                  <LayerRow
+                    key={key}
+                    label={SHIP_CLASS_LABELS[key]}
+                    checked={vesselFilters[key]}
+                    onChange={(on) => setFilterFlag(key, on)}
+                  />
+                ))}
+                <div className="item hint" style={{ opacity: 0.75, marginTop: 6 }}>
+                  Extra
+                </div>
+                <LayerRow
+                  label="Updated last 6 hours"
+                  checked={vesselFilters.recent6h}
+                  onChange={(on) => setFilterFlag('recent6h', on)}
+                />
+                <LayerRow
+                  label="Watchlist only"
+                  checked={vesselFilters.watchlistOnly}
+                  onChange={(on) => setFilterFlag('watchlistOnly', on)}
+                />
+                <div className="item hint" style={{ opacity: 0.75, marginTop: 6 }}>
+                  Focus (optional — narrows further)
                 </div>
                 <LayerRow
                   label="Sanctioned"
@@ -599,27 +780,6 @@ export default function HomePage() {
                   checked={vesselFilters.shadow}
                   onChange={(on) => setFilterFlag('shadow', on)}
                 />
-                <LayerRow
-                  label="Research"
-                  checked={vesselFilters.research}
-                  onChange={(on) => setFilterFlag('research', on)}
-                />
-                <LayerRow
-                  label="Military"
-                  checked={vesselFilters.military}
-                  onChange={(on) => setFilterFlag('military', on)}
-                />
-                <LayerRow
-                  label="Russian vessels (MID 273)"
-                  checked={vesselFilters.russian}
-                  onChange={(on) => setFilterFlag('russian', on)}
-                />
-              </div>
-            )}
-            {filtersOpen && (
-              <div className="item hint">
-                MID = first 3 digits of MMSI (Maritime Identification Digits). Russian ships use
-                273…
               </div>
             )}
 
@@ -668,118 +828,10 @@ export default function HomePage() {
               Export live vessels (GeoJSON)
             </button>
 
-            {/* —— Maritime zones —— */}
-            <div className="section-header">Maritime zones</div>
-            <div className="item item-toggle">
-              <span className="label">Economic areas</span>
-              <button
-                type="button"
-                className="text-btn"
-                onClick={() => setEaOpen((v) => !v)}
-              >
-                {eaOpen ? 'Hide' : 'Show'}
-              </button>
-              <span className="spacer" />
-              <img className="menu-icon" src="/menu/EEZs.svg" alt="" />
-            </div>
-            <div className="group" style={{ display: eaOpen ? 'block' : 'none' }}>
-              <LayerRow
-                label="Norway EEZ"
-                icon="/menu/EEZs.svg"
-                checked={overlays['eez-norway']}
-                onChange={(on) => setOverlay('eez-norway', on)}
-              />
-              <LayerRow
-                label="Jan Mayen EEZ"
-                icon="/menu/EEZs.svg"
-                checked={overlays['eez-janmayen']}
-                onChange={(on) => setOverlay('eez-janmayen', on)}
-              />
-              <LayerRow
-                label="Svalbard FPZ"
-                icon="/menu/EEZs.svg"
-                checked={overlays['eez-svalbard']}
-                onChange={(on) => setOverlay('eez-svalbard', on)}
-              />
-            </div>
-            <LayerRow
-              label="Ice edge"
-              checked={overlays['ice-edge']}
-              onChange={(on) => setOverlay('ice-edge', on)}
-            />
-
-            {/* —— Infrastructure —— */}
-            <div className="section-header">Infrastructure</div>
-            <LayerRow
-              label="Nkom cables"
-              icon="/menu/Underseacables.svg"
-              checked={overlays.cables}
-              onChange={(on) => setOverlay('cables', on)}
-            />
-            <LayerRow
-              label="Named cables"
-              icon="/menu/Underseacables.svg"
-              checked={overlays['cables-telegeography']}
-              onChange={(on) => setOverlay('cables-telegeography', on)}
-            />
-            <LayerRow
-              label="Pipelines & oil rigs"
-              icon="/menu/pipelines_and_oil_rigs.svg"
-              checked={overlays.petroleum}
-              onChange={(on) => setOverlay('petroleum', on)}
-            />
-            <LayerRow
-              label="Ports"
-              icon="/menu/ports.svg"
-              checked={overlays.ports}
-              onChange={(on) => setOverlay('ports', on)}
-            />
-
-            {/* —— Restricted areas —— */}
-            <div className="section-header">Restricted areas</div>
-            <LayerRow
-              label="NSM restrictions"
-              icon="/menu/NSMrestriction.svg"
-              checked={overlays.nsm}
-              onChange={(on) => setOverlay('nsm', on)}
-            />
-            <LayerRow
-              label="Firing ranges"
-              icon="/menu/Offshore_firing_range.svg"
-              checked={overlays.skytefelt}
-              onChange={(on) => setOverlay('skytefelt', on)}
-            />
-
-            {/* —— Nav warnings —— */}
-            <div className="section-header">Navigation warnings</div>
-            <button
-              type="button"
-              className={`disclaimer-toggle ${navWarningsOpen ? 'open' : ''}`}
-              onClick={() => setNavWarningsOpen((v) => !v)}
-              aria-expanded={navWarningsOpen}
-            >
-              Show options
-              {(overlays.navwarnings || overlays['navwarnings-30d']) ? ' · on' : ''}
-            </button>
-            {navWarningsOpen && (
-              <div className="group">
-                <LayerRow
-                  label="Active warnings"
-                  checked={overlays.navwarnings}
-                  onChange={(on) => setOverlay('navwarnings', on)}
-                />
-                <LayerRow
-                  label="Last 30 days"
-                  checked={overlays['navwarnings-30d']}
-                  onChange={(on) => setOverlay('navwarnings-30d', on)}
-                />
-              </div>
-            )}
-
-            {/* —— GFW —— */}
+            {/* —— Fishing Watch —— */}
             <div className="section-header">Fishing Watch</div>
             <div className="item hint">
-              Events: RU / sanctioned / shadow · AIS-off &amp; SAR on by default (full AOI)
+              Events: RU / sanctioned / shadow · AIS-off &amp; SAR on by default
             </div>
             <LayerRow
               label="Loitering"
@@ -870,6 +922,151 @@ export default function HomePage() {
                 </span>
               </div>
             )}
+
+            {/* —— Maritime zones —— */}
+            <div className="section-header">Maritime zones</div>
+            <div className="item item-toggle">
+              <span className="label">Economic areas</span>
+              <img className="menu-icon" src="/menu/EEZs.svg" alt="" />
+              <span className="item-control">
+                <button
+                  type="button"
+                  className="text-btn"
+                  onClick={() => setEaOpen((v) => !v)}
+                >
+                  {eaOpen ? 'Hide' : 'Show'}
+                </button>
+              </span>
+            </div>
+            <div className="group" style={{ display: eaOpen ? 'block' : 'none' }}>
+              <LayerRow
+                label="Norway EEZ"
+                icon="/menu/EEZs.svg"
+                checked={overlays['eez-norway']}
+                onChange={(on) => setOverlay('eez-norway', on)}
+              />
+              <LayerRow
+                label="Jan Mayen EEZ"
+                icon="/menu/EEZs.svg"
+                checked={overlays['eez-janmayen']}
+                onChange={(on) => setOverlay('eez-janmayen', on)}
+              />
+              <LayerRow
+                label="Svalbard FPZ"
+                icon="/menu/EEZs.svg"
+                checked={overlays['eez-svalbard']}
+                onChange={(on) => setOverlay('eez-svalbard', on)}
+              />
+            </div>
+            <LayerRow
+              label="Ice edge"
+              checked={overlays['ice-edge']}
+              onChange={(on) => setOverlay('ice-edge', on)}
+            />
+            <LayerRow
+              label="Bathymetry"
+              checked={overlays.bathymetry}
+              onChange={(on) => setOverlay('bathymetry', on)}
+            />
+
+            {/* —— Infrastructure —— */}
+            <div className="section-header">Infrastructure</div>
+            <LayerRow
+              label="Nkom cables"
+              icon="/menu/Underseacables.svg"
+              checked={overlays.cables}
+              onChange={(on) => setOverlay('cables', on)}
+            />
+            <LayerRow
+              label="Named cables"
+              icon="/menu/Underseacables.svg"
+              checked={overlays['cables-telegeography']}
+              onChange={(on) => setOverlay('cables-telegeography', on)}
+            />
+            <LayerRow
+              label="Pipelines"
+              icon="/menu/pipelines_and_oil_rigs.svg"
+              checked={overlays.pipelines}
+              onChange={(on) => setOverlay('pipelines', on)}
+            />
+            <LayerRow
+              label="Old pipelines"
+              icon="/menu/pipelines_and_oil_rigs.svg"
+              checked={overlays['pipelines-old']}
+              onChange={(on) => setOverlay('pipelines-old', on)}
+            />
+            <LayerRow
+              label="Oil rigs"
+              icon="/menu/pipelines_and_oil_rigs.svg"
+              checked={overlays.petroleum}
+              onChange={(on) => setOverlay('petroleum', on)}
+            />
+            <LayerRow
+              label="Ports"
+              icon="/menu/ports.svg"
+              checked={overlays.ports}
+              onChange={(on) => setOverlay('ports', on)}
+            />
+
+            {/* —— Restricted areas —— */}
+            <div className="section-header">Restricted areas</div>
+            <LayerRow
+              label="NSM restrictions"
+              icon="/menu/NSMrestriction.svg"
+              checked={overlays.nsm}
+              onChange={(on) => setOverlay('nsm', on)}
+            />
+            <LayerRow
+              label="Firing ranges"
+              icon="/menu/Offshore_firing_range.svg"
+              checked={overlays.skytefelt}
+              onChange={(on) => setOverlay('skytefelt', on)}
+            />
+
+            {/* —— Nav warnings —— */}
+            <div className="section-header">Navigation warnings</div>
+            <button
+              type="button"
+              className={`disclaimer-toggle ${navWarningsOpen ? 'open' : ''}`}
+              onClick={() => setNavWarningsOpen((v) => !v)}
+              aria-expanded={navWarningsOpen}
+            >
+              Show options
+              {(overlays.navwarnings || overlays['navwarnings-30d']) ? ' · on' : ''}
+            </button>
+            {navWarningsOpen && (
+              <div className="group">
+                <LayerRow
+                  label="Active warnings"
+                  checked={overlays.navwarnings}
+                  onChange={(on) => setOverlay('navwarnings', on)}
+                />
+                <LayerRow
+                  label="Last 30 days"
+                  checked={overlays['navwarnings-30d']}
+                  onChange={(on) => setOverlay('navwarnings-30d', on)}
+                />
+              </div>
+            )}
+
+            {/* —— Coverage notes (last) —— */}
+            <button
+              type="button"
+              className={`disclaimer-toggle ${coverageOpen ? 'open' : ''}`}
+              onClick={() => setCoverageOpen((v) => !v)}
+              aria-expanded={coverageOpen}
+            >
+              Data coverage
+            </button>
+            {coverageOpen && (
+              <div className="disclaimer">
+                Inside Norway EEZ, Jan Mayen EEZ, and the Svalbard Fisheries Protection Zone: all
+                registered vessels except fishing under 15&nbsp;m and recreational under 45&nbsp;m
+                (when length is known). Elsewhere in the North Atlantic north of 54°N: Russian
+                vessels, curated research vessels, shadow fleet, sanctioned vessels, and military /
+                law enforcement. Live AIS via AISStream + BarentsWatch (~20&nbsp;s refresh).
+              </div>
+            )}
           </div>
         </div>
         <div className="overlay" onClick={() => setDrawerOpen(false)} />
@@ -898,6 +1095,7 @@ export default function HomePage() {
           selectedMmsi={selectedMmsi}
           vesselFilters={vesselFilters}
           trackDays={trackDays}
+          watchlistMmsis={watchlistMmsis}
           drawingAoi={drawingAoi}
           draftRing={draftRing}
           alertPolygons={alertRules
@@ -909,6 +1107,9 @@ export default function HomePage() {
           onVesselSelect={openVessel}
           onGfwEventSelect={openGfwEvent}
           onCableSelect={drawingAoi ? undefined : openCable}
+          onPortSelect={drawingAoi ? undefined : openPort}
+          onRigSelect={drawingAoi ? undefined : openRig}
+          onPipelineSelect={drawingAoi ? undefined : openPipeline}
           onNavWarningSelect={drawingAoi ? undefined : openNavWarning}
           onDeselect={closeDetail}
           onVesselStatus={setAisStatus}
@@ -1265,6 +1466,68 @@ export default function HomePage() {
                       {Math.abs(ev.lon).toFixed(4)}°{ev.lon >= 0 ? 'E' : 'W'}
                     </span>
                   </div>
+                  {ev.mmsi && (
+                    <div className="row detail-actions">
+                      <button
+                        type="button"
+                        className="detail-action"
+                        onClick={() =>
+                          openVesselFromGfw(ev.mmsi!, {
+                            name: ev.vessels,
+                            russian: ev.russian,
+                            sanctioned: ev.sanctioned,
+                            shadowfleet: ev.shadowfleet,
+                            lon: ev.lon,
+                            lat: ev.lat,
+                          })
+                        }
+                      >
+                        Open live vessel
+                      </button>
+                      <button
+                        type="button"
+                        className="detail-action"
+                        onClick={() => {
+                          setWatchlist((s) =>
+                            upsertWatchEntry(s, {
+                              mmsi: ev.mmsi!,
+                              name: ev.vessels || `MMSI ${ev.mmsi}`,
+                            })
+                          );
+                        }}
+                      >
+                        Add to watchlist
+                      </button>
+                      <button
+                        type="button"
+                        className="detail-action"
+                        onClick={() => {
+                          setAlertDraft({
+                            mmsi: ev.mmsi!,
+                            name: ev.vessels || `MMSI ${ev.mmsi}`,
+                          });
+                          setAlertsExpanded(true);
+                        }}
+                      >
+                        Create area alert
+                      </button>
+                    </div>
+                  )}
+                  {ev.partnerMmsi && (
+                    <div className="row detail-actions">
+                      <button
+                        type="button"
+                        className="detail-action"
+                        onClick={() =>
+                          openVesselFromGfw(ev.partnerMmsi!, {
+                            name: `Partner ${ev.partnerMmsi}`,
+                          })
+                        }
+                      >
+                        Open partner vessel
+                      </button>
+                    </div>
+                  )}
                 </div>
               </>
             );
@@ -1317,6 +1580,161 @@ export default function HomePage() {
                       © TeleGeography Submarine Cable Map (CC BY-NC-SA)
                     </div>
                   )}
+                </div>
+              </>
+            );
+          })()}
+          {selection?.kind === 'port' && (() => {
+            const p = selection.port;
+            const rows: [string, string | null][] = [
+              ['Harbour', p.harbour],
+              ['Facility id', p.id],
+              ['Owner', p.ownerType],
+              ['Status', p.status],
+              ['Functions', p.functions],
+              ['Cruise', p.hasCruise],
+              ['Safe loading', p.safeLoading],
+              ['Approval valid to', p.approvalValidTo],
+              ['Municipality', p.council],
+              ['County', p.county],
+            ];
+            return (
+              <>
+                <div className="head" style={{ background: '#475569', color: '#fff' }}>
+                  {p.name}
+                  <div className="country" style={{ marginTop: 6 }}>
+                    Port facility
+                    {p.harbour ? ` · ${p.harbour}` : ''}
+                  </div>
+                </div>
+                <div className="body">
+                  {rows
+                    .filter(([, v]) => v)
+                    .map(([k, v]) => (
+                      <div className="row" key={k}>
+                        <span className="k">{k}:</span>
+                        <span className="v">{v}</span>
+                      </div>
+                    ))}
+                  <div className="row muted">
+                    Source: Kystverket PFSA port facilities (GeoNorge)
+                  </div>
+                </div>
+              </>
+            );
+          })()}
+          {selection?.kind === 'rig' && (() => {
+            const r = selection.rig;
+            const rows: [string, string | null][] = [
+              ['Kind', r.kind],
+              ['Phase', r.phase],
+              ['Fixed / moveable', r.fixedOrMoveable],
+              ['Operator', r.operator],
+              ['Field / belongs to', r.belongsTo],
+              ['Functions', r.functions],
+              ['AOC status', r.status],
+              [
+                'Water depth',
+                r.waterDepthM != null ? `${r.waterDepthM} m` : null,
+              ],
+              ['Id', r.id],
+              ['Updated', r.updated ? formatWhen(r.updated) : null],
+            ];
+            return (
+              <>
+                <div className="head" style={{ background: '#ea580c', color: '#fff' }}>
+                  {r.name}
+                  <div className="country" style={{ marginTop: 6 }}>
+                    Oil / gas installation
+                    {r.phase ? ` · ${r.phase}` : ''}
+                  </div>
+                </div>
+                <div className="body">
+                  {rows
+                    .filter(([, v]) => v)
+                    .map(([k, v]) => (
+                      <div className="row" key={k}>
+                        <span className="k">{k}:</span>
+                        <span className="v">{v}</span>
+                      </div>
+                    ))}
+                  {r.factPageUrl && (
+                    <div className="row">
+                      <a
+                        href={r.factPageUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ color: '#fdba74', fontSize: 12 }}
+                      >
+                        Open Sodir fact page ↗
+                      </a>
+                    </div>
+                  )}
+                  <div className="row muted">
+                    Source: Sodir FactMaps (facilities in place, surface)
+                  </div>
+                </div>
+              </>
+            );
+          })()}
+          {selection?.kind === 'pipeline' && (() => {
+            const p = selection.pipeline;
+            const rows: [string, string | null][] = [
+              ['Status', p.inUse ? 'In use' : 'Not in use'],
+              ['Medium', p.medium],
+              ['Phase', p.phase],
+              ['Chart type', p.source === 'geonorge' ? p.chartType : null],
+              ['Operator', p.operator],
+              ['Belongs to', p.belongsTo],
+              ['From', p.fromFacility],
+              ['To', p.toFacility],
+              [
+                'Dimension',
+                p.dimensionInch != null ? `${p.dimensionInch}"` : null,
+              ],
+              [
+                'Max water depth',
+                p.waterDepthM != null ? `${p.waterDepthM} m` : null,
+              ],
+              ['Id', p.id],
+              ['Updated', p.updated ? formatWhen(p.updated) : null],
+            ];
+            const headBg = p.inUse ? '#ea580c' : '#64748b';
+            return (
+              <>
+                <div className="head" style={{ background: headBg, color: '#fff' }}>
+                  {p.name}
+                  <div className="country" style={{ marginTop: 6 }}>
+                    {p.inUse ? 'Petroleum pipeline' : 'Chart pipeline · not in use'}
+                    {p.medium ? ` · ${p.medium}` : ''}
+                  </div>
+                </div>
+                <div className="body">
+                  {rows
+                    .filter(([, v]) => v)
+                    .map(([k, v]) => (
+                      <div className="row" key={k}>
+                        <span className="k">{k}:</span>
+                        <span className="v">{v}</span>
+                      </div>
+                    ))}
+                  {p.factPageUrl && (
+                    <div className="row">
+                      <a
+                        href={p.factPageUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ color: '#fdba74', fontSize: 12 }}
+                      >
+                        Open Sodir fact page ↗
+                      </a>
+                    </div>
+                  )}
+                  <div className="row muted">
+                    {p.source === 'sodir'
+                      ? 'Source: Sodir FactMaps (pipelines)'
+                      : 'Source: GeoNorge chart rørledning (legacy, not in use)'}
+                  </div>
                 </div>
               </>
             );
@@ -1449,10 +1867,14 @@ export default function HomePage() {
               </>
             )}
             {(overlays['ice-edge'] ||
+              overlays.bathymetry ||
               overlays.navwarnings ||
               overlays['navwarnings-30d'] ||
               overlays['cables-telegeography'] ||
               overlays.cables ||
+              overlays.pipelines ||
+              overlays['pipelines-old'] ||
+              overlays.petroleum ||
               selection?.kind === 'vessel') && (
               <>
                 <div className="legend-section">Overlays</div>
@@ -1461,6 +1883,12 @@ export default function HomePage() {
                     <div className="item">
                       <span className="line ice" />
                       Ice edge
+                    </div>
+                  )}
+                  {overlays.bathymetry && (
+                    <div className="item">
+                      <span className="line bathymetry" />
+                      Bathymetry
                     </div>
                   )}
                   {(overlays.navwarnings || overlays['navwarnings-30d']) && (
@@ -1483,6 +1911,24 @@ export default function HomePage() {
                     <div className="item">
                       <span className="line nkom-cable" />
                       Nkom cables
+                    </div>
+                  )}
+                  {overlays.pipelines && (
+                    <div className="item">
+                      <span className="line pipeline" />
+                      Pipelines
+                    </div>
+                  )}
+                  {overlays['pipelines-old'] && (
+                    <div className="item">
+                      <span className="line pipeline-unused" />
+                      Old pipelines
+                    </div>
+                  )}
+                  {overlays.petroleum && (
+                    <div className="item">
+                      <span className="swatch petroleum" />
+                      Oil rigs
                     </div>
                   )}
                   {selection?.kind === 'vessel' && (
